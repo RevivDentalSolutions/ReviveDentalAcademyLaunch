@@ -1,0 +1,40 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+@theme {
+  --color-primary: #1F252D;
+  --color-secondary: #8DE1D9;
+  --color-accent: #E6FFFA;
+  
+  --font-sans: 'Poppins', system-ui, sans-serif;
+  --font-serif: 'Poppins', system-ui, sans-serif;
+
+  /* Alex's existing variables (mapping them to new ones where possible) */
+  --color-background: #1F252D;
+  --color-brand-mint: #8DE1D9;
+  --color-brand-teal: #0D9488;
+  --color-brand-dark: #1F252D;
+  --color-charcoal: #1F252D;
+  --color-charcoal-light: #2D343E;
+  --color-charcoal-dark: #161B21;
+}
+
+:root {
+  background-color: #1F252D;
+  color: white;
+  font-family: var(--font-sans);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  @apply bg-primary text-white antialiased;
+}
+
+.btn-glow {
+  @apply shadow-[0_0_15px_rgba(141,225,217,0.3)] transition-all duration-300;
+}
+
+.btn-glow:hover {
+  @apply shadow-[0_0_25px_rgba(141,225,217,0.5)] scale-[1.02];
+}

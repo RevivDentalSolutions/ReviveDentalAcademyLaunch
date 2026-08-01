@@ -1,0 +1,283 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-charcoal-50: #f6f6f6;
+  --color-charcoal-100: #e7e7e7;
+  --color-charcoal-200: #d1d1d1;
+  --color-charcoal-300: #b0b0b0;
+  --color-charcoal-400: #888888;
+  --color-charcoal-500: #6d6d6d;
+  --color-charcoal-600: #5d5d5d;
+  --color-charcoal-700: #4f4f4f;
+  --color-charcoal-800: #3d3d3d;
+  --color-charcoal-900: #2d2d2d;
+  --color-charcoal-950: #1a1a1a;
+
+  --color-mint-50: #f0fdf9;
+  --color-mint-100: #d1fae5;
+  --color-mint-200: #a7f3d0;
+  --color-mint-300: #6ee7b7;
+  --color-mint-400: #34d399;
+  --color-mint-500: #10b981;
+  --color-mint-600: #059669;
+  --color-mint-700: #047857;
+  --color-mint-800: #065f46;
+  --color-mint-900: #064e3b;
+
+  --color-teal-50: #f0fdfa;
+  --color-teal-100: #ccfbf1;
+  --color-teal-200: #99f6e4;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-teal-600: #0d9488;
+  --color-teal-700: #0f766e;
+  --color-teal-800: #115e59;
+  --color-teal-900: #134e4a;
+
+  --color-cream-50: #fdfcfb;
+  --color-cream-100: #faf9f7;
+  --color-cream-200: #f5f3f0;
+  --color-cream-300: #ece8e3;
+  --color-cream-400: #d9d4cc;
+  --color-cream-500: #c4bcb1;
+  --color-cream-600: #a8a096;
+  --color-cream-700: #8a8178;
+  --color-cream-800: #6f685e;
+  --color-cream-900: #5a554d;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Poppins', sans-serif;
+
+  --shadow-soft: 0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 24px rgba(0, 0, 0, 0.05);
+  --shadow-elevated: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    background-color: var(--color-cream-100);
+    color: var(--color-charcoal-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom Components using standard CSS with Tailwind variables */
+.btn {
+  display: inline-flex;
+  items-center: center;
+  justify-content: center;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-radius: 0.75rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+.btn:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: var(--color-charcoal-900);
+  color: white;
+  box-shadow: var(--shadow-soft);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-charcoal-800);
+}
+
+.btn-secondary {
+  background-color: white;
+  color: var(--color-charcoal-900);
+  border: 1px solid var(--color-charcoal-200);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-cream-100);
+}
+
+.btn-accent {
+  background-color: var(--color-mint-500);
+  color: white;
+  box-shadow: var(--shadow-soft);
+}
+
+.btn-accent:hover {
+  background-color: var(--color-mint-600);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  color: var(--color-charcoal-700);
+}
+
+.btn-ghost:hover {
+  background-color: var(--color-cream-200);
+}
+
+.btn-sm {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.btn-lg {
+  padding-left: 2rem;
+  padding-right: 2rem;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  font-size: 1rem;
+}
+
+.card {
+  background-color: white;
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-card);
+  padding: 1.5rem;
+  border: 1px solid rgba(45, 45, 45, 0.05);
+}
+
+.card-interactive {
+  cursor: pointer;
+  transition-property: box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+.card-interactive:hover {
+  box-shadow: var(--shadow-elevated);
+}
+
+.card-accent {
+  background-image: linear-gradient(to bottom right, var(--color-mint-50), var(--color-teal-50));
+  border: 1px solid var(--color-mint-200);
+}
+
+.input {
+  width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-charcoal-200);
+  background-color: white;
+  color: var(--color-charcoal-900);
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+.input:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-mint-400);
+  border-color: transparent;
+}
+
+.label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-charcoal-700);
+  margin-bottom: 0.5rem;
+}
+
+.tool-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.75rem;
+  background-image: linear-gradient(to bottom right, var(--color-mint-100), var(--color-teal-100));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-mint-600);
+}
+
+.page-container {
+  max-width: 80rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+@media (min-width: 640px) {
+  .page-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-charcoal-900);
+  margin-bottom: 0.5rem;
+}
+
+.section-subtitle {
+  color: var(--color-charcoal-600);
+  margin-bottom: 1.5rem;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
