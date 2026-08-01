@@ -14,6 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createCorsOptions, requireAdmin } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +24,10 @@ const app = express();
 const PORT = process.env.AI_API_PORT || 3002;
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
+  // Keep the health endpoint available in Preview before the paid AI key is configured.
+  // Admin-only generation routes will receive an OpenAI authentication error until
+  // OPENAI_API_KEY is intentionally added to the deployment environment.
+  apiKey: process.env.OPENAI_API_KEY || 'not-configured',
 });
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -50,7 +54,7 @@ function readableCourseSaveError(error) {
 }
 
 app.use(express.json({ limit: '10mb' }));
-app.use(cors());
+app.use(cors(createCorsOptions()));
 
 // ============================================================
 // Health Check
@@ -62,6 +66,9 @@ app.get('/api/ai/health', (req, res) => {
     supabase: supabaseUrl ? 'configured' : 'not configured',
   });
 });
+
+// Course generation can spend money and write with the service role. It is admin-only.
+app.use('/api/ai', requireAdmin);
 
 // ============================================================
 // Generate Full Course (with quizzes & checklists)
@@ -331,9 +338,9 @@ ${(lessonContent || '').substring(0, 3500)}`,
 }
 
 app.post('/api/ai/generate-lesson-video-script', handleGenerateLessonVideoScript);
-app.post('/generate-lesson-video-script', handleGenerateLessonVideoScript);
+app.post('/generate-lesson-video-script', requireAdmin, handleGenerateLessonVideoScript);
 app.post('/api/ai/generate-video-script', handleGenerateLessonVideoScript);
-app.post('/generate-video-script', handleGenerateLessonVideoScript);
+app.post('/generate-video-script', requireAdmin, handleGenerateLessonVideoScript);
 
 // ============================================================
 // Generate AI Video Factory Package
@@ -406,7 +413,7 @@ ${(lessonContent || '').substring(0, 4500)}`,
 }
 
 app.post('/api/ai/generate-video-package', handleGenerateVideoPackage);
-app.post('/generate-video-package', handleGenerateVideoPackage);
+app.post('/generate-video-package', requireAdmin, handleGenerateVideoPackage);
 
 // ============================================================
 // Database Inserter (with quizzes & checklists)
@@ -523,7 +530,7 @@ function formatQuizContent(quiz) {
 // ============================================================
 // Start Server
 // ============================================================
-app.listen(PORT, () => {
+if (!process.env.VERCEL) app.listen(PORT, () => {
   console.log(`\n  🤖 AI Course Generator running on http://localhost:${PORT}`);
   console.log(`  📋 Endpoints:`);
   console.log(`     POST /api/ai/generate-course    (course + quizzes + checklists)`);
@@ -536,3 +543,5 @@ app.listen(PORT, () => {
   console.log(`\n  ⚙️  OpenAI: ${process.env.OPENAI_API_KEY ? '✅' : '❌'} ${process.env.OPENAI_API_KEY ? 'Configured' : 'Not configured'}`);
   console.log(`  ⚙️  Supabase: ${supabaseUrl ? '✅' : '❌'} ${supabaseUrl ? 'Configured' : 'Not configured'}\n`);
 });
+
+export default app;

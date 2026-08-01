@@ -11,6 +11,14 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
+apikeys/
+
+# Rendered videos are stored in Supabase Storage, not source control.
+public/exports/*.mp4
+public/exports/*.png
 
 # Editor directories and files
 .vscode/*

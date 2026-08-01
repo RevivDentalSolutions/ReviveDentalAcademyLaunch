@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ShieldCheck, Mail, Lock, X, Eye, EyeOff } from 'lucide-react'
-import { signIn, signUp } from '../../lib/supabase'
+import { requestPasswordRecovery, signIn, signUp } from '../../lib/supabase'
 
 const LoginPage = () => {
   const navigate = useNavigate()
@@ -12,6 +12,7 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
+  const [recoverySent, setRecoverySent] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -29,6 +30,24 @@ const LoginPage = () => {
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handlePasswordRecovery() {
+    if (!email) {
+      setError('Enter your email address first, then select Forgot password.')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      await requestPasswordRecovery(email)
+      setRecoverySent(true)
+    } catch (err: any) {
+      setError(err.message || 'We could not send a password-reset email. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -63,6 +82,12 @@ const LoginPage = () => {
             <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-lg text-sm mb-6 flex items-center space-x-2">
               <X className="h-4 w-4 flex-shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {recoverySent && (
+            <div className="bg-brand-mint/10 border border-brand-mint/20 text-brand-mint px-4 py-3 rounded-lg text-sm mb-6">
+              Password-reset instructions have been sent. Check your inbox and spam folder.
             </div>
           )}
 
@@ -142,6 +167,17 @@ const LoginPage = () => {
                 isSignUp ? 'Create Account' : 'Sign In'
               )}
             </button>
+
+            {!isSignUp && (
+              <button
+                type="button"
+                onClick={handlePasswordRecovery}
+                disabled={loading}
+                className="w-full text-sm text-brand-mint hover:text-brand-mint/80 font-medium transition-colors disabled:opacity-50"
+              >
+                Forgot password?
+              </button>
+            )}
           </form>
 
           <div className="mt-6 text-center">

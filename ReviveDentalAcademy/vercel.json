@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm ci --ignore-scripts",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "routes": [
+    { "src": "/api/ai/(.*)", "dest": "/api/ai/[...path].js" },
+    { "src": "/api/stripe/(.*)", "dest": "/api/stripe/[...path].js" },
+    { "src": "/api/video/(.*)", "dest": "/api/video/[...path].js" },
+    { "src": "/api/admin/video-lessons/(.*)", "dest": "/api/admin/video-lessons/[...path].js" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

@@ -31,6 +31,7 @@ import {
   type Module
 } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
+import { authenticatedJsonFetch } from '../../lib/apiClient';
 
 function getVideoEmbedUrl(videoUrl: string | null | undefined): string {
   if (!videoUrl) return '';
@@ -427,10 +428,9 @@ const CoursePlayer = () => {
     }
 
     setPlaybackLoading(true);
-    fetch('/api/video/lesson-playback-url', {
+    authenticatedJsonFetch('/api/video/lesson-playback-url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoUrl: rawVideoUrl }),
+      body: JSON.stringify({ videoUrl: rawVideoUrl, lessonId: currentLessonForPlayback?.id }),
     })
       .then(async (response) => {
         if (!response.ok) throw new Error(await readPlaybackError(response));

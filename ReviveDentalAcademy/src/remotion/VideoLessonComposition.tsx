@@ -1,6 +1,7 @@
 import type { ComponentType, CSSProperties } from "react";
 import {
   AbsoluteFill,
+  Audio,
   Img,
   Sequence,
   Video,
@@ -16,6 +17,7 @@ import { ReviveAcademyScene } from "./ReviveAcademyScene";
 const FPS = 30;
 const RemotionImg = Img as unknown as ComponentType<{ src: string; style?: CSSProperties }>;
 const RemotionVideo = Video as unknown as ComponentType<{ src: string; style?: CSSProperties; loop?: boolean; muted?: boolean }>;
+const RemotionAudio = Audio as unknown as ComponentType<{ src: string }>;
 
 export const reviveVideoConfig = {
   width: 1920,
@@ -265,6 +267,7 @@ export function VideoLessonComposition({ lesson }: { lesson: VideoLessonMetadata
 
         return (
           <Sequence key={scene.id} from={from} durationInFrames={duration}>
+            {scene.narrationUrl && <RemotionAudio src={scene.narrationUrl} />}
             {lesson.templateId === "revive-academy" ? (
               <ReviveAcademyScene scene={scene} index={index} lesson={lesson} />
             ) : (

@@ -20,6 +20,7 @@ import {
   Clapperboard
 } from 'lucide-react';
 import { VideoLessonBuilder } from '../../components/admin/video-lesson-builder/VideoLessonBuilder';
+import { authenticatedJsonFetch } from '../../lib/apiClient';
 import { REVIVE_VIDEO_BRAND_PROMPT, generateCourse, generateLessonVideoScript, generateVideoPackage, type AIGeneratedCourse, type AIGenerationStatus, type AILessonVideoScript } from '../../lib/aiCourseBuilder';
 import {
   adminGetStats,
@@ -733,7 +734,7 @@ const AdminDashboard = () => {
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       await new Promise(resolve => window.setTimeout(resolve, 10000));
 
-      const response = await fetch(`/api/video/heygen-status/${videoId}`);
+      const response = await authenticatedJsonFetch(`/api/video/heygen-status/${videoId}`);
       const result = await readApiResponse(response);
 
       if (!response.ok) {
@@ -789,9 +790,8 @@ const AdminDashboard = () => {
     setHeyGenStatuses(prev => ({ ...prev, [lesson.id]: { status: 'queued' } }));
 
     try {
-      const response = await fetch('/api/video/generate-heygen-video', {
+      const response = await authenticatedJsonFetch('/api/video/generate-heygen-video', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lessonId: lesson.id,
           title: lesson.title,

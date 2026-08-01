@@ -39,6 +39,9 @@ export type VideoLessonScene = {
   mediaUrl?: string;
   mediaStoragePath?: string;
   mediaFileName?: string;
+  narrationUrl?: string;
+  narrationStoragePath?: string;
+  narrationVoice?: string;
   mediaPosition?: "background" | "left" | "right" | "center";
   mediaFit?: "cover" | "contain";
   mediaOpacity?: number;
@@ -231,6 +234,9 @@ export function normalizeScene(scene: LegacyVideoLessonScene, index: number): Vi
     mediaUrl: scene.mediaUrl || scene.imageUrl || "",
     mediaStoragePath: scene.mediaStoragePath || "",
     mediaFileName: scene.mediaFileName || "",
+    narrationUrl: scene.narrationUrl || "",
+    narrationStoragePath: scene.narrationStoragePath || "",
+    narrationVoice: scene.narrationVoice || "",
     mediaPosition: scene.mediaPosition || "right",
     mediaFit: scene.mediaFit || "cover",
     mediaOpacity: Math.min(1, Math.max(0, Number(scene.mediaOpacity ?? 1))),

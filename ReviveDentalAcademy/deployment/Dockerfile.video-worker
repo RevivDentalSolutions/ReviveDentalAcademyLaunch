@@ -1,0 +1,13 @@
+FROM node:22-bookworm
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev --ignore-scripts && npx remotion browser ensure
+COPY server ./server
+COPY src/remotion ./src/remotion
+COPY src/lib/video-lessons ./src/lib/video-lessons
+COPY tsconfig.json tsconfig.app.json ./
+COPY public ./public
+
+ENV NODE_ENV=production
+CMD ["node", "server/video-worker.js"]

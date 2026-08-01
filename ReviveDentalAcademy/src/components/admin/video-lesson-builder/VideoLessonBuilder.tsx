@@ -11,6 +11,7 @@ import { AssetPreviewPanel, SceneLibrary, SceneVisualEditor } from "./SceneVisua
 import { ReviveAcademyScene } from "../../../remotion/ReviveAcademyScene";
 import { getLessonDurationInFrames, reviveVideoConfig, VideoLessonComposition } from "../../../remotion/VideoLessonComposition";
 import "./videoLessonBuilder.css";
+import { authenticatedJsonFetch } from "../../../lib/apiClient";
 
 type VideoLessonBuilderProps = {
   initialLesson?: VideoLessonMetadata;
@@ -416,6 +417,32 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
     setGeneratedScenes(normalizeVideoLesson(result.lesson).scenes); setGeneratorState("review");
   }
 
+  async function generateNarrationAudio() {
+    if (!lesson.scenes.length) {
+      setMessage("Add at least one scene before generating narration.");
+      return;
+    }
+
+    setRenderState("rendering");
+    setMessage("Generating narrated MP3 tracks for each scene...");
+    try {
+      const response = await authenticatedJsonFetch("/api/admin/video-lessons/generate-narration", {
+        method: "POST",
+        body: JSON.stringify({ lesson: { ...lesson, academySettings } }),
+      });
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      const result = await response.json() as { lesson?: VideoLessonMetadata; voice?: string };
+      if (!result.lesson?.scenes?.length) throw new Error("Narration completed but no audio tracks were returned.");
+      const narratedLesson = normalizeVideoLesson({ ...lesson, ...result.lesson, academySettings, renderStatus: "draft" });
+      commitLesson(narratedLesson);
+      setRenderState("idle");
+      setMessage(`Narration is ready in ${result.voice || "the selected"} voice. Review the preview, then export the MP4.`);
+    } catch (error) {
+      setRenderState("failed");
+      setMessage(error instanceof Error ? error.message : "Narration generation failed.");
+    }
+  }
+
   function applyGeneratedScenes() {
     const next = normalizeVideoLesson({ ...lesson, title: generatorTitle || lesson.title, templateId: "revive-academy", scenes: generatedScenes, renderStatus: "draft" });
     commitLesson(next); setSelectedSceneId(next.scenes[0]?.id || ""); setGeneratorOpen(false); setGeneratorState("idle"); setMessage("Generated scene plan applied. Review each scene before export.");
@@ -675,9 +702,8 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
         endpoint: "/api/admin/video-lessons/render",
         method: "POST",
       });
-      const response = await fetch("/api/admin/video-lessons/render", {
+      const response = await authenticatedJsonFetch("/api/admin/video-lessons/render", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lesson: {
             ...exportLesson,
@@ -757,9 +783,8 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
       renderStoragePath: lessonToAttach.renderStoragePath,
     });
 
-    const response = await fetch("/api/admin/video-lessons/attach", {
+    const response = await authenticatedJsonFetch("/api/admin/video-lessons/attach", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lesson: lessonToAttach }),
     });
 
@@ -798,6 +823,9 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
           </button>
           <button type="button" onClick={saveMetadata}>
             Save Metadata
+          </button>
+          <button type="button" onClick={generateNarrationAudio} disabled={renderState === "rendering"}>
+            Generate Narration Audio
           </button>
           <button type="button" className="vlb-primary" onClick={renderMp4} disabled={renderState === "rendering"}>
             {renderState === "rendering" ? "Rendering..." : "Export MP4"}

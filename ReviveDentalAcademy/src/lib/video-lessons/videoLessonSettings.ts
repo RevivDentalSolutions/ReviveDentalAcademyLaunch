@@ -2,6 +2,8 @@ import {
   defaultAcademyVideoSettings,
   type AcademyVideoSettings,
 } from "./videoLessonTypes";
+import { authenticatedJsonFetch } from "../apiClient";
+import { supabase } from "../supabase";
 
 const VIDEO_BUCKET = import.meta.env.VITE_SUPABASE_VIDEO_BUCKET || "academy-media";
 const LOCAL_STORAGE_KEY = "revive-video-lesson-builder-settings";
@@ -37,7 +39,7 @@ function loadSettingsLocally(): AcademyVideoSettings {
 
 export async function loadAcademyVideoSettings(): Promise<AcademyVideoSettings> {
   try {
-    const response = await fetch("/api/admin/video-lessons/academy-settings");
+    const response = await authenticatedJsonFetch("/api/admin/video-lessons/academy-settings");
     if (!response.ok) throw new Error(await readApiError(response));
     const result = await response.json() as { settings?: AcademyVideoSettings };
     const settings = normalizeSettings(result.settings);
@@ -55,7 +57,7 @@ export async function saveAcademyVideoSettings(settings: AcademyVideoSettings): 
     ...settings,
     updatedAt: new Date().toISOString(),
   });
-  const response = await fetch("/api/admin/video-lessons/academy-settings", {
+  const response = await authenticatedJsonFetch("/api/admin/video-lessons/academy-settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ settings: nextSettings }),
@@ -104,15 +106,13 @@ async function readApiError(response: Response) {
   }
 }
 
-async function fileToBase64(file: File) {
-  const buffer = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-  }
-  return window.btoa(binary);
+function createStoragePath(pathPrefix: string, fileName: string) {
+  const safePrefix = pathPrefix.replace(/^\/+|\/+$/g, "").replace(/[^a-zA-Z0-9/_-]/g, "-");
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const uniqueSuffix = typeof crypto?.randomUUID === "function"
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  return `${safePrefix}/${Date.now()}-${uniqueSuffix}-${safeName}`;
 }
 
 export async function uploadAcademyMediaAsset(
@@ -126,22 +126,17 @@ export async function uploadAcademyMediaAsset(
   const safePrefix = pathPrefix.replace(/^\/+|\/+$/g, "").replace(/[^a-zA-Z0-9/_-]/g, "-");
   const extension = getFileExtension(file);
   const contentType = file.type || (extension === "mp4" ? "video/mp4" : "application/octet-stream");
-  const response = await fetch("/api/admin/video-lessons/academy-media/upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      pathPrefix: safePrefix,
-      fileName: safeName || `media.${extension}`,
-      contentType,
-      acceptedKinds,
-      base64: await fileToBase64(file),
-    }),
+  const storagePath = createStoragePath(safePrefix, safeName || `media.${extension}`);
+  const { error } = await supabase.storage.from(VIDEO_BUCKET).upload(storagePath, file, {
+    cacheControl: "31536000",
+    contentType,
+    upsert: false,
   });
 
-  if (!response.ok) throw new Error(await readApiError(response));
+  if (error) throw error;
 
-  const result = await response.json() as AcademyMediaUploadResult;
-  return { ...result, fileName: result.fileName || file.name, bucket: result.bucket || VIDEO_BUCKET };
+  const publicUrl = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(storagePath).data.publicUrl;
+  return { publicUrl, storagePath, fileName: file.name, bucket: VIDEO_BUCKET };
 }
 
 export async function uploadRemoteAcademyMediaAsset(
@@ -152,7 +147,7 @@ export async function uploadRemoteAcademyMediaAsset(
 ): Promise<AcademyMediaUploadResult> {
   const safePrefix = pathPrefix.replace(/^\/+|\/+$/g, "").replace(/[^a-zA-Z0-9/_-]/g, "-");
   const safeName = (fileName || "heygen-avatar-clip.mp4").replace(/[^a-zA-Z0-9._-]/g, "-");
-  const response = await fetch("/api/admin/video-lessons/academy-media/upload-remote", {
+  const response = await authenticatedJsonFetch("/api/admin/video-lessons/academy-media/upload-remote", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

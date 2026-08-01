@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { authenticateRequest, createCorsOptions, requireAdmin } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,15 +28,15 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 });
 
 // Required for verified webhook writes:
-// SUPABASE_URL or VITE_SUPABASE_URL: your Supabase project URL.
+// SUPABASE_URL: your Supabase project URL.
 // SUPABASE_SERVICE_ROLE_KEY: server-only service role key. Never expose it to the browser.
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 function requireSupabaseConfig() {
   if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Missing Supabase webhook env vars: SUPABASE_URL/VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+    throw new Error('Missing Supabase webhook env vars: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
   }
 }
 
@@ -245,6 +246,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 
 // API routes need JSON body parsing
 app.use('/api', express.json());
+app.use(cors(createCorsOptions()));
 
 // Health check
 app.get('/api/stripe/health', (req, res) => {
@@ -255,61 +257,68 @@ app.get('/api/stripe/health', (req, res) => {
  * Create a Stripe Checkout Session for one-time payments or subscriptions.
  *
  * POST /api/stripe/create-checkout-session
- * Body: { productName, priceCents, mode, productType, successUrl, cancelUrl, metadata?, couponCode? }
+ * Body: { productId, productType }. Price, product name, URLs, and purchaser are server-owned.
  */
-app.post('/api/stripe/create-checkout-session', async (req, res) => {
-  const {
-    productName,
-    priceCents,
-    mode = 'payment',
-    successUrl,
-    cancelUrl,
-    metadata = {},
-    couponCode,
-    userId,
-  } = req.body;
+app.post('/api/stripe/create-checkout-session', authenticateRequest, async (req, res) => {
+  const { productId, productType } = req.body;
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
 
-  if (!priceCents || !successUrl || !cancelUrl) {
-    return res.status(400).json({ error: 'Missing required fields' });
+  if (!productId || !['membership', 'course'].includes(productType)) {
+    return res.status(400).json({ error: 'Choose a valid product.' });
   }
+  if (!appUrl) return res.status(503).json({ error: 'Checkout is not configured. Missing APP_URL.' });
 
   try {
-    // Build line items for the checkout session
-    const lineItems = [
-      {
+    let lineItems;
+    let mode;
+    let metadata;
+    let successUrl;
+    let cancelUrl;
+
+    if (productType === 'membership') {
+      const priceId = process.env.STRIPE_PRICE_OFFICE_PRO_MONTHLY;
+      if (!priceId) return res.status(503).json({ error: 'Office Pro checkout is not configured.' });
+      lineItems = [{ price: priceId, quantity: 1 }];
+      mode = 'subscription';
+      metadata = { product_type: 'membership', product_id: 'office-pro-monthly' };
+      successUrl = `${appUrl}/membership?checkout=success`;
+      cancelUrl = `${appUrl}/membership?checkout=canceled`;
+    } else {
+      const { data: course, error } = await supabase
+        .from('courses')
+        .select('id, title, price, published')
+        .eq('id', productId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!course?.published || !Number.isFinite(Number(course.price)) || Number(course.price) <= 0) {
+        return res.status(404).json({ error: 'This course is not available for purchase.' });
+      }
+      lineItems = [{
         price_data: {
           currency: 'usd',
-          product_data: {
-            name: productName,
-            metadata,
-          },
-          unit_amount: priceCents,
-          ...(mode === 'subscription' ? { recurring: { interval: 'month' } } : {}),
+          product_data: { name: course.title },
+          unit_amount: Math.round(Number(course.price) * 100),
         },
         quantity: 1,
-      },
-    ];
+      }];
+      mode = 'payment';
+      metadata = { product_type: 'course', product_id: course.id };
+      successUrl = `${appUrl}/course-player/${course.id}?checkout=success`;
+      cancelUrl = `${appUrl}/courses?checkout=canceled`;
+    }
 
-    // Build session params
     const sessionParams = {
       line_items: lineItems,
-      mode: mode === 'subscription' ? 'subscription' : 'payment',
-      success_url: successUrl + '?session_id={CHECKOUT_SESSION_ID}',
+      mode,
+      success_url: `${successUrl}${successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancelUrl,
       metadata: {
         ...metadata,
-        user_id: userId || 'anonymous',
-        product_type: metadata.product_type || 'course',
+        user_id: req.auth.user.id,
+        product_type: metadata.product_type,
       },
-      // Allow promotion codes from Stripe Dashboard
       allow_promotion_codes: true,
     };
-
-    // Apply coupon if provided (using a Stripe coupon or directly)
-    if (couponCode) {
-      // In production, look up the coupon via Stripe API
-      sessionParams.discounts = [{ coupon: couponCode }];
-    }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
@@ -329,7 +338,7 @@ app.post('/api/stripe/create-checkout-session', async (req, res) => {
  * POST /api/stripe/create-coupon
  * Body: { code, percentOff, duration? }
  */
-app.post('/api/stripe/create-coupon', async (req, res) => {
+app.post('/api/stripe/create-coupon', requireAdmin, async (req, res) => {
   const { code, percentOff, duration = 'once' } = req.body;
 
   if (!code || !percentOff) {
@@ -352,7 +361,7 @@ app.post('/api/stripe/create-coupon', async (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+if (!process.env.VERCEL) app.listen(PORT, () => {
   console.log(`\n  🏦 Stripe API Server running on http://localhost:${PORT}`);
   console.log(`  📋 Endpoints:`);
   console.log(`     POST /api/stripe/create-checkout-session`);
@@ -361,3 +370,5 @@ app.listen(PORT, () => {
   console.log(`     GET  /api/stripe/health`);
   console.log(`\n  ⚠️  Set STRIPE_SECRET_KEY env var for live mode.\n`);
 });
+
+export default app;
