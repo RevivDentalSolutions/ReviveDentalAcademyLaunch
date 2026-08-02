@@ -15,6 +15,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
+function resolveRemotionEntryPoint() {
+  const candidates = [
+    path.resolve(process.cwd(), 'src', 'remotion', 'index.ts'),
+    path.resolve(process.cwd(), 'ReviveDentalAcademy', 'src', 'remotion', 'index.ts'),
+    path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts'),
+    path.resolve(__dirname, '..', '..', 'src', 'remotion', 'index.ts'),
+  ];
+  const entryPoint = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!entryPoint) throw new Error(`Remotion entry point was not included in this deployment. Checked: ${candidates.join(', ')}`);
+  return entryPoint;
+}
+
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const renderBucket = process.env.SUPABASE_RENDER_BUCKET || 'lesson-videos';
@@ -44,7 +56,7 @@ function durationInFrames(lesson) {
 }
 
 async function getBundle() {
-  bundlePromise ||= bundle({ entryPoint: path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts') });
+  bundlePromise ||= bundle({ entryPoint: resolveRemotionEntryPoint() });
   return bundlePromise;
 }
 
