@@ -2,7 +2,6 @@ import type { ComponentType, CSSProperties, ReactNode } from "react";
 import { Img, Video, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { VideoLessonMetadata, VideoLessonScene } from "../lib/video-lessons/videoLessonTypes";
 import type { VideoLessonLayoutId } from "../lib/video-lessons/videoLessonLayouts";
-import { getReviveIconName, getReviveIconUrl, type ReviveIconName } from "../lib/video-lessons/reviveIconRegistry";
 
 const RemotionImg = Img as unknown as ComponentType<{ src: string; style?: CSSProperties }>;
 const RemotionVideo = Video as unknown as ComponentType<{ src: string; style?: CSSProperties; loop?: boolean; muted?: boolean }>;
@@ -99,39 +98,24 @@ export function SectionBadge({ children }: { children: ReactNode }) {
   );
 }
 
-export function ReviveIcon({ name, layoutId, size = 72, treatment = "aqua" }: { name?: string; layoutId?: VideoLessonLayoutId; size?: number; treatment?: "aqua" | "white" }) {
-  const iconName = getReviveIconName(name, layoutId);
-  // The newer approved SVG exports retain a generous 1500px artboard. Scale
-  // those vectors inside their viewport so their artwork reads consistently
-  // beside the tightly cropped legacy icons without altering the source files.
-  const paddedAssetScale: Partial<Record<ReviveIconName, number>> = {
-    calculator: 5,
-    checklist: 5,
-    dollar: 5,
-    lightbulb: 5,
-    patient: 5,
-    question: 5,
-    shield: 5,
-    team: 5,
-    warning: 5,
-  };
-  const scale = paddedAssetScale[iconName] ?? 1;
+const remotionIconMarks: Record<string, string> = {
+  tooth: "✦", clipboard: "✓", calendar: "□", clock: "◷", phone: "⌁", progress: "→",
+  checklist: "✓", calculator: "+", dollar: "$", shield: "◆", team: "◎", patient: "●",
+  question: "?", lightbulb: "✦", warning: "!", video: "▶",
+};
 
-  return (
-    <div style={{ alignItems: "center", display: "flex", height: size, justifyContent: "center", overflow: "hidden", width: size }}>
-      <RemotionImg
-        src={getReviveIconUrl(iconName)}
-        style={{
-          display: "block",
-          filter: treatment === "white" ? "grayscale(1) brightness(4)" : undefined,
-          height: size,
-          objectFit: "contain",
-          transform: `scale(${scale})`,
-          width: size,
-        }}
-      />
-    </div>
-  );
+const remotionLayoutIcons: Partial<Record<VideoLessonLayoutId, string>> = {
+  title: "tooth", "section-divider": "tooth", definition: "clipboard", comparison: "clipboard",
+  process: "clipboard", timeline: "calendar", example: "calculator", "patient-scenario": "patient",
+  quiz: "question", recap: "checklist", "avatar-intro": "video", "avatar-outro": "video",
+};
+
+// Remotion bundles run inside a short-lived serverless environment. Keep its
+// supporting marks self-contained so an MP4 does not depend on a separate UI
+// asset directory being copied into the function package.
+export function ReviveIcon({ name, layoutId, size = 72, treatment = "aqua" }: { name?: string; layoutId?: VideoLessonLayoutId; size?: number; treatment?: "aqua" | "white" }) {
+  const mark = remotionIconMarks[name || (layoutId ? remotionLayoutIcons[layoutId] : "") || "tooth"] || "✦";
+  return <div style={{ alignItems: "center", color: treatment === "white" ? colors.text : colors.aqua, display: "flex", fontFamily, fontSize: Math.round(size * 0.74), fontWeight: 800, height: size, justifyContent: "center", lineHeight: 1, width: size }}>{mark}</div>;
 }
 
 export function IconCircle({ label, icon, layoutId }: { label?: string; icon?: string; layoutId?: VideoLessonLayoutId }) {
@@ -254,7 +238,7 @@ export function Divider({ dashed = false }: { dashed?: boolean }) {
   );
 }
 
-export function CalloutCard({ children, style, icon = "warning" }: { children: ReactNode; style?: CSSProperties; icon?: ReviveIconName }) {
+export function CalloutCard({ children, style, icon = "warning" }: { children: ReactNode; style?: CSSProperties; icon?: string }) {
   return (
     <GlassCard style={{ borderLeft: `6px solid ${colors.aqua}`, padding: "26px 30px", ...style }}>
       <div style={{ alignItems: "center", color: colors.body, display: "flex", fontFamily, fontSize: 22, gap: 20, lineHeight: 1.4 }}><ReviveIcon name={icon} size={60} />{children}</div>
