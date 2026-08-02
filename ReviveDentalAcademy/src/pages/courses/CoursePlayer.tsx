@@ -32,6 +32,7 @@ import {
 } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { authenticatedJsonFetch } from '../../lib/apiClient';
+import { readCourseQuiz } from '../../lib/courseQuiz';
 
 function getVideoEmbedUrl(videoUrl: string | null | undefined): string {
   if (!videoUrl) return '';
@@ -350,6 +351,8 @@ const CoursePlayer = () => {
   const [playbackUrl, setPlaybackUrl] = useState('');
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [playbackError, setPlaybackError] = useState('');
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
 
   useEffect(() => {
     const initPlayer = async () => {
@@ -404,6 +407,11 @@ const CoursePlayer = () => {
   };
 
   const currentLessonForPlayback = modules[currentModuleIdx]?.lessons?.[currentLessonIdx];
+
+  useEffect(() => {
+    setQuizAnswers({});
+    setQuizSubmitted(false);
+  }, [currentLessonForPlayback?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -496,6 +504,10 @@ const CoursePlayer = () => {
   const currentVideoUrl = playbackUrl;
   const currentVideoIsMp4 = isMp4VideoUrl(playbackUrl);
   const memberLessonContent = sanitizeMemberLessonContent(currentLesson?.content);
+  const currentQuiz = readCourseQuiz(currentLesson?.content);
+  const quizScore = currentQuiz
+    ? currentQuiz.questions.reduce((total, question, index) => total + (quizAnswers[index] === question.correctIndex ? 1 : 0), 0)
+    : 0;
   const totalLessons = modules.reduce((acc, m) => acc + (m.lessons?.length || 0), 0);
   const completedCount = progress.length; // Simplified for this demo
   const progressPercent = Math.round((completedCount / (totalLessons || 1)) * 100);
@@ -736,16 +748,55 @@ const CoursePlayer = () => {
             </div>
           )}
 
-          {activeTab === 'quiz' && (
+          {activeTab === 'quiz' && !currentQuiz && (
             <div className="text-center py-16 px-4">
               <div className="p-6 rounded-full bg-white/[0.02] border border-white/5 w-fit mx-auto mb-6">
                 <HelpCircle className="h-10 w-10 text-gray-700" />
               </div>
-              <h3 className="text-white font-bold tracking-tight text-xl mb-3">Ready for Assessment?</h3>
-              <p className="text-sm text-gray-500 mb-10 leading-relaxed">Complete all lessons in this module to unlock the knowledge assessment and earn your credentials.</p>
-              <button className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl text-gray-500 text-sm font-bold opacity-50 cursor-not-allowed">
-                Take Module Quiz
-              </button>
+              <h3 className="text-white font-bold tracking-tight text-xl mb-3">No quiz for this lesson yet</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">Your next quiz will appear here when it is published with the lesson.</p>
+            </div>
+          )}
+
+          {activeTab === 'quiz' && currentQuiz && (
+            <div className="space-y-6">
+              <div>
+                <p className="text-[10px] font-bold text-secondary uppercase tracking-[0.2em] mb-2">Lesson knowledge check</p>
+                <h3 className="text-white font-bold tracking-tight text-xl">{currentQuiz.title}</h3>
+                <p className="text-sm text-gray-500 mt-2">Choose an answer for every question, then submit to see your results.</p>
+              </div>
+              {currentQuiz.questions.map((question, questionIndex) => {
+                const selected = quizAnswers[questionIndex];
+                const isCorrect = selected === question.correctIndex;
+                return (
+                  <section key={`${question.question}-${questionIndex}`} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                    <p className="text-xs font-bold text-secondary uppercase tracking-widest mb-3">Question {questionIndex + 1}</p>
+                    <h4 className="text-white font-semibold leading-relaxed mb-4">{question.question}</h4>
+                    <div className="space-y-2">
+                      {question.options.map((option, optionIndex) => {
+                        const selectedOption = selected === optionIndex;
+                        const showCorrect = quizSubmitted && optionIndex === question.correctIndex;
+                        const showIncorrect = quizSubmitted && selectedOption && !isCorrect;
+                        return (
+                          <button key={`${option}-${optionIndex}`} type="button" disabled={quizSubmitted} onClick={() => setQuizAnswers((answers) => ({ ...answers, [questionIndex]: optionIndex }))}
+                            className={`w-full rounded-xl border p-3 text-left text-sm transition-all ${showCorrect ? 'border-secondary bg-secondary/15 text-white' : showIncorrect ? 'border-red-400/50 bg-red-400/10 text-red-100' : selectedOption ? 'border-secondary/70 bg-secondary/10 text-white' : 'border-white/10 bg-black/20 text-gray-300 hover:border-secondary/40'} ${quizSubmitted ? 'cursor-default' : ''}`}>
+                            <span className="mr-3 inline-flex h-6 w-6 items-center justify-center rounded-full border border-current text-[11px] font-bold">{showCorrect ? '✓' : String.fromCharCode(65 + optionIndex)}</span>{option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+              {!quizSubmitted ? (
+                <button type="button" disabled={Object.keys(quizAnswers).length !== currentQuiz.questions.length} onClick={() => setQuizSubmitted(true)} className="w-full rounded-2xl bg-secondary py-4 text-sm font-bold text-primary transition-opacity disabled:cursor-not-allowed disabled:opacity-40">Submit Answers</button>
+              ) : (
+                <div className="rounded-2xl border border-secondary/30 bg-secondary/10 p-5 text-center">
+                  <p className="text-secondary text-xs font-bold uppercase tracking-widest">Your result</p>
+                  <p className="mt-2 text-3xl font-black text-white">{quizScore} / {currentQuiz.questions.length}</p>
+                  <p className="mt-2 text-sm text-gray-300">{quizScore === currentQuiz.questions.length ? 'Perfect—keep that workflow close.' : 'Review the highlighted answers, then try the next lesson.'}</p>
+                </div>
+              )}
             </div>
           )}
           
