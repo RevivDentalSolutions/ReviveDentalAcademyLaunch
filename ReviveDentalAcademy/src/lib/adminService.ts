@@ -100,7 +100,7 @@ export async function adminGetAllCourses(): Promise<Course[]> {
 export async function adminGetCourseLessonOptions(): Promise<CourseLessonOption[]> {
   const { data, error } = await supabase
     .from('courses')
-    .select('id, title, modules(id, lessons(id, title, order))')
+    .select('id, title, modules(id, lessons(id, title, content, order))')
     .order('title', { ascending: true });
 
   if (error) throw error;
@@ -114,6 +114,7 @@ export async function adminGetCourseLessonOptions(): Promise<CourseLessonOption[
           courseTitle: course.title,
           lessonId: lesson.id,
           lessonTitle: lesson.title,
+          lessonContent: lesson.content || '',
         }))
     ))
   ));
