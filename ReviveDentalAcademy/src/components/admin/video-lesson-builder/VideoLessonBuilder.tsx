@@ -944,6 +944,9 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
                 </label>
               </div>
               <div className="vlb-inline-actions">
+                <button type="button" onClick={() => { updateAcademySettings({ introDurationInSeconds: 4, outroDurationInSeconds: 3 }); setMessage("Short lesson bumpers selected: 4s intro and 3s outro. Save Settings to use them for exports."); }} disabled={!academySettings.introVideoUrl && !academySettings.outroVideoUrl}>
+                  Use Short Lesson Bumpers (4s / 3s)
+                </button>
                 <button type="button" className="vlb-primary" onClick={saveSettings} disabled={settingsState === "saving" || settingsState === "uploading"}>
                   {settingsState === "saving" ? "Saving..." : settingsState === "uploading" ? "Uploading..." : "Save Settings"}
                 </button>
