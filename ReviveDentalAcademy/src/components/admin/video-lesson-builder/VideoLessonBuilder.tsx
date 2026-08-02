@@ -8,7 +8,6 @@ import { createSceneForLayout, validateScene } from "../../../lib/video-lessons/
 import { generateVideoScenePlan } from "../../../lib/aiCourseBuilder";
 import { loadAcademyVideoSettings, saveAcademyVideoSettings, uploadAcademyMediaAsset, uploadAcademyVideoAsset, uploadRemoteAcademyMediaAsset } from "../../../lib/video-lessons/videoLessonSettings";
 import { AssetPreviewPanel, SceneLibrary, SceneVisualEditor } from "./SceneVisualEditor";
-import { ReviveAcademyScene } from "../../../remotion/ReviveAcademyScene";
 import { getLessonDurationInFrames, reviveVideoConfig, VideoLessonComposition } from "../../../remotion/VideoLessonComposition";
 import "./videoLessonBuilder.css";
 import { authenticatedJsonFetch } from "../../../lib/apiClient";
@@ -1208,7 +1207,7 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
           <section className="vlb-panel vlb-preview">
             <div className="vlb-preview-toolbar"><div><button type="button" className={previewMode === "scene" ? "is-active" : ""} onClick={() => setPreviewMode("scene")}>Scene only</button><button type="button" className={previewMode === "lesson" ? "is-active" : ""} onClick={() => setPreviewMode("lesson")}>Full lesson</button></div><div><button type="button" disabled={selectedSceneIndex === 0} onClick={() => setSelectedSceneId(lesson.scenes[selectedSceneIndex - 1]?.id || selectedSceneId)}>Previous</button><button type="button" disabled={selectedSceneIndex >= lesson.scenes.length - 1} onClick={() => setSelectedSceneId(lesson.scenes[selectedSceneIndex + 1]?.id || selectedSceneId)}>Next</button></div></div>
             <div className="vlb-preview-frame">
-              {selectedScene && previewMode === "scene" && <Player component={ReviveAcademyScene} inputProps={{ scene: selectedScene, index: selectedSceneIndex, lesson }} durationInFrames={Math.max(4, selectedScene.durationInSeconds || 8) * reviveVideoConfig.fps} compositionWidth={reviveVideoConfig.width} compositionHeight={reviveVideoConfig.height} fps={reviveVideoConfig.fps} controls loop style={{ width: "100%" }} />}
+              {selectedScene && previewMode === "scene" && <Player component={VideoLessonComposition} inputProps={{ lesson: { ...lesson, scenes: [selectedScene], academySettings: { ...academySettings, introVideoUrl: "", outroVideoUrl: "" } } }} durationInFrames={Math.max(4, selectedScene.durationInSeconds || 8) * reviveVideoConfig.fps} compositionWidth={reviveVideoConfig.width} compositionHeight={reviveVideoConfig.height} fps={reviveVideoConfig.fps} controls loop style={{ width: "100%" }} />}
               {previewMode === "lesson" && <Player component={VideoLessonComposition} inputProps={{ lesson: { ...lesson, academySettings } }} durationInFrames={getLessonDurationInFrames({ ...lesson, academySettings })} compositionWidth={reviveVideoConfig.width} compositionHeight={reviveVideoConfig.height} fps={reviveVideoConfig.fps} controls style={{ width: "100%" }} />}
               <div className="vlb-legacy-preview" aria-hidden="true">
               <div className="vlb-slide">
