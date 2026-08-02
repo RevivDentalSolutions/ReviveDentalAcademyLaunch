@@ -351,6 +351,27 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
     setMessage("Loaded the Introduction to Key Terms sample lesson.");
   }
 
+  function startFromCourseLesson() {
+    const option = courseLessons.find((item) => item.lessonId === lesson.lessonId);
+    if (!option) {
+      setMessage("Choose a course lesson first, then start its video.");
+      return;
+    }
+    const source = (option.lessonContent || "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/^#{1,6}\s+(?:Training Script|Video Script|Storyboard|Suggested Visuals).*$/gim, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    updateLesson({ courseId: option.courseId, lessonId: option.lessonId, title: option.lessonTitle, description: source.slice(0, 220) });
+    setGeneratorTitle(option.lessonTitle);
+    setGeneratorNarration(source);
+    setGeneratorTarget(7);
+    setGeneratorQuiz(true);
+    setGeneratorOpen(true);
+    setGeneratorState("idle");
+    setMessage(source ? `Loaded ${option.lessonTitle}. Generate a scene plan when you are ready.` : `Attached ${option.lessonTitle}. Add its narration before generating scenes.`);
+  }
+
   function getIntroPlaceholder(): VideoLessonScene {
     return normalizeScene({
       id: "global_intro_placeholder",
@@ -1293,6 +1314,9 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
                 </option>
               ))}
             </select>
+            <button type="button" onClick={startFromCourseLesson} disabled={!lesson.lessonId}>
+              Start Video From Lesson
+            </button>
             <button type="button" onClick={() => attachToCourseLesson()}>
               Attach to Lesson
             </button>
