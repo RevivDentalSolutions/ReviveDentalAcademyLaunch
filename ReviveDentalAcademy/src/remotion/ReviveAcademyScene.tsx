@@ -449,6 +449,46 @@ function ScenarioLayout({ scene }: { scene: VideoLessonScene }) {
   );
 }
 
+function QuizLayout({ scene }: { scene: VideoLessonScene }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const choices = scene.quizChoices?.length ? scene.quizChoices.slice(0, 4) : (scene.bullets || []).slice(0, 4);
+  const answerIndex = Math.max(0, Math.min(choices.length - 1, scene.correctAnswerIndex ?? 0));
+  const revealAt = Math.max(4, scene.answerRevealInSeconds ?? 7) * fps;
+  const revealed = frame >= revealAt;
+
+  return (
+    <div style={{ alignItems: "center", display: "grid", gap: 34, gridTemplateColumns: "0.72fr 1.28fr", height: "100%" }}>
+      <Animated>
+        <SectionBadge>{revealed ? "Answer Reveal" : "Pause & Practice"}</SectionBadge>
+        <div style={{ alignItems: "center", background: "rgba(135,215,210,0.08)", border: `3px solid ${colors.aqua}`, borderRadius: "50%", display: "flex", height: 250, justifyContent: "center", marginTop: 38, width: 250 }}>
+          <ReviveIcon name={revealed ? "checklist" : "question"} layoutId="quiz" size={190} />
+        </div>
+        <p style={{ color: colors.aqua, fontFamily, fontSize: 22, fontWeight: 700, lineHeight: 1.35, margin: "34px 0 0", maxWidth: 360 }}>{revealed ? "Here is the reasoning to remember." : "Pause the video. Choose your answer before the reveal."}</p>
+      </Animated>
+      <Animated delay={6}>
+        <h1 style={{ color: colors.text, fontFamily, fontSize: 54, fontWeight: 800, lineHeight: 1.08, margin: 0 }}>{scene.quizQuestion || scene.body || scene.title}</h1>
+        <div style={{ display: "grid", gap: 16, marginTop: 34 }}>
+          {choices.map((choice, index) => {
+            const isCorrect = index === answerIndex;
+            return (
+              <Animated key={`${choice}-${index}`} delay={12 + index * 4}>
+                <GlassCard style={{ background: revealed && isCorrect ? "rgba(135,215,210,0.2)" : undefined, borderColor: revealed && isCorrect ? colors.aqua : "rgba(135,215,210,0.34)", padding: "19px 24px" }}>
+                  <div style={{ alignItems: "center", color: colors.body, display: "flex", fontFamily, fontSize: 23, fontWeight: 600, gap: 18, lineHeight: 1.25 }}>
+                    <span style={{ alignItems: "center", border: `2px solid ${revealed && isCorrect ? colors.aqua : "rgba(135,215,210,0.55)"}`, borderRadius: "50%", color: colors.aqua, display: "flex", flex: "0 0 auto", fontSize: 18, fontWeight: 800, height: 36, justifyContent: "center", width: 36 }}>{revealed && isCorrect ? "✓" : String.fromCharCode(65 + index)}</span>
+                    {choice}
+                  </div>
+                </GlassCard>
+              </Animated>
+            );
+          })}
+        </div>
+        {revealed && scene.quizExplanation && <Animated delay={4}><GlassCard style={{ borderLeft: `6px solid ${colors.aqua}`, marginTop: 26, padding: "20px 24px" }}><p style={{ color: colors.text, fontFamily, fontSize: 21, lineHeight: 1.4, margin: 0 }}><span style={{ color: colors.aqua, fontWeight: 800 }}>WHY:</span> {scene.quizExplanation}</p></GlassCard></Animated>}
+      </Animated>
+    </div>
+  );
+}
+
 function RecapLayout({ scene }: { scene: VideoLessonScene }) {
   const takeaways = scene.recapItems?.length ? scene.recapItems.map((item) => item.title) : (scene.bullets || []);
   return (
@@ -507,8 +547,9 @@ function renderLayout(scene: VideoLessonScene) {
     case "timeline":
       return <TimelineLayout scene={scene} />;
     case "patient-scenario":
-    case "quiz":
       return <ScenarioLayout scene={scene} />;
+    case "quiz":
+      return <QuizLayout scene={scene} />;
     case "recap":
       return <RecapLayout scene={scene} />;
     case "avatar-intro":
