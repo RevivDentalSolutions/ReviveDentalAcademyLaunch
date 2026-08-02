@@ -9,6 +9,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
@@ -51,6 +52,20 @@ const RENDER_BUCKET = process.env.SUPABASE_RENDER_BUCKET || process.env.VITE_SUP
 const SIGNED_PLAYBACK_URL_TTL_SECONDS = Number(process.env.SIGNED_PLAYBACK_URL_TTL_SECONDS || 60 * 60);
 const DEFAULT_NARRATION_VOICE = process.env.OPENAI_TTS_VOICE || 'marin';
 const NARRATION_INSTRUCTIONS = 'Speak with a calm, confident, professional training tone for dental office staff. Use clear pacing, natural emphasis on insurance terminology, and a warm, encouraging delivery.';
+
+function resolveRemotionEntryPoint() {
+  const candidates = [
+    path.resolve(process.cwd(), 'src', 'remotion', 'index.ts'),
+    path.resolve(process.cwd(), 'ReviveDentalAcademy', 'src', 'remotion', 'index.ts'),
+    path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts'),
+    path.resolve(__dirname, '..', '..', 'src', 'remotion', 'index.ts'),
+  ];
+  const entryPoint = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!entryPoint) {
+    throw new Error(`Remotion entry point was not included in this deployment. Checked: ${candidates.join(', ')}`);
+  }
+  return entryPoint;
+}
 
 app.use(express.json({ limit: process.env.VIDEO_API_JSON_LIMIT || '200mb' }));
 app.use(cors(createCorsOptions()));
@@ -587,15 +602,16 @@ app.post('/api/admin/video-lessons/render', async (req, res) => {
     const compositionId = 'ReviveVideoLesson';
     const safeId = lesson.id.replace(/[^a-zA-Z0-9_-]/g, '-');
     const outName = `${safeId}.mp4`;
-    const exportsDir = path.resolve(__dirname, '..', 'public', 'exports');
+    const exportsDir = path.join(os.tmpdir(), 'revive-video-exports');
     const outPath = path.join(exportsDir, outName);
     fs.mkdirSync(exportsDir, { recursive: true });
+    const remotionEntryPoint = resolveRemotionEntryPoint();
 
     renderLog.log('Remotion bundle started', {
-      entryPoint: path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts'),
+      entryPoint: remotionEntryPoint,
     });
     const bundled = await bundle({
-      entryPoint: path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts'),
+      entryPoint: remotionEntryPoint,
     });
 
     renderLog.log('Remotion composition selected', {
