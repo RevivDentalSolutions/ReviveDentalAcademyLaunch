@@ -101,6 +101,7 @@ export type CourseLessonOption = {
   courseTitle: string;
   lessonId: string;
   lessonTitle: string;
+  lessonContent?: string;
 };
 
 export const defaultAcademyVideoSettings: AcademyVideoSettings = {
