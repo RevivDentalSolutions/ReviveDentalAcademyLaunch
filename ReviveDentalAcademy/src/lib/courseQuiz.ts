@@ -23,7 +23,7 @@ export function readCourseQuiz(content: string | null | undefined): CourseQuiz |
   if (!content) return null;
   const match = quizMarker.exec(content);
   quizMarker.lastIndex = 0;
-  if (!match?.[1]) return null;
+  if (!match?.[1]) return readLegacyCourseQuiz(content);
 
   try {
     const parsed = JSON.parse(decode(match[1])) as Partial<CourseQuiz>;
@@ -37,8 +37,32 @@ export function readCourseQuiz(content: string | null | undefined): CourseQuiz |
       }));
     return questions.length ? { title: parsed.title.trim(), questions } : null;
   } catch {
-    return null;
+    return readLegacyCourseQuiz(content);
   }
+}
+
+// Earlier AI-generated courses saved quizzes as readable markdown. Keep those
+// courses usable while newly saved quizzes use the private structured marker.
+function readLegacyCourseQuiz(content: string): CourseQuiz | null {
+  const quizStart = /##\s*(?:📝\s*)?([^\n]*(?:knowledge check|quiz)[^\n]*)\n([\s\S]*)$/im.exec(content);
+  if (!quizStart) return null;
+
+  const questions: CourseQuizQuestion[] = [];
+  const questionPattern = /\*\*Q\d+:\*\*\s*([^\n]+)([\s\S]*?)(?=\*\*Q\d+:\*\*|$)/g;
+  let questionMatch: RegExpExecArray | null;
+  while ((questionMatch = questionPattern.exec(quizStart[2]))) {
+    const options: string[] = [];
+    let correctIndex = 0;
+    questionMatch[2].split('\n').forEach((line) => {
+      const optionMatch = /^\s*([✅✓○])\s+(.+?)\s*$/.exec(line);
+      if (!optionMatch) return;
+      if (optionMatch[1] === '✅' || optionMatch[1] === '✓') correctIndex = options.length;
+      options.push(optionMatch[2]);
+    });
+    if (options.length >= 2) questions.push({ question: questionMatch[1].trim(), options: options.slice(0, 4), correctIndex });
+  }
+
+  return questions.length ? { title: quizStart[1].replace(/^📝\s*/, '').trim(), questions } : null;
 }
 
 export function stripCourseQuiz(content: string | null | undefined) {
