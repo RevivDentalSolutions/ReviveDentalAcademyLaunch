@@ -144,14 +144,14 @@ export function IconCircle({ label, icon, layoutId }: { label?: string; icon?: s
         color: colors.aqua,
         display: "flex",
         fontFamily,
-        fontSize: 48,
+        fontSize: 64,
         fontWeight: 800,
-        height: 132,
+        height: 190,
         justifyContent: "center",
-        width: 132,
+        width: 190,
       }}
     >
-      {label || <ReviveIcon name={icon} layoutId={layoutId} size={108} />}
+      {label || <ReviveIcon name={icon} layoutId={layoutId} size={156} />}
     </div>
   );
 }
@@ -167,7 +167,7 @@ export function HexagonFrame({ children }: { children: ReactNode }) {
         display: "flex",
         justifyContent: "center",
         padding: 18,
-        width: 300,
+        width: 430,
       }}
     >
       <div
@@ -266,7 +266,7 @@ export function ImageFrame({ scene }: { scene: VideoLessonScene }) {
   const mediaUrl = scene.mediaUrl || scene.imageUrl || "";
   const mediaType = scene.mediaType || (mediaUrl ? "image" : "none");
   return (
-    <GlassCard style={{ alignItems: "center", display: "flex", height: 560, justifyContent: "center", padding: 24, width: 590 }}>
+    <GlassCard style={{ alignItems: "center", display: "flex", height: 600, justifyContent: "center", padding: 28, width: 620 }}>
       {mediaUrl && mediaType !== "none" ? (
         mediaType === "video" ? (
           <RemotionVideo src={mediaUrl} loop={scene.loopMedia ?? true} muted style={{ borderRadius: 20, height: "100%", objectFit: scene.mediaFit || "cover", opacity: scene.mediaOpacity ?? 1, width: "100%" }} />
@@ -368,13 +368,39 @@ function ProcessLayout({ scene }: { scene: VideoLessonScene }) {
       <div style={{ alignItems: "stretch", display: "grid", gap: 24, gridTemplateColumns: `repeat(${Math.min(4, steps.length)}, 1fr)` }}>
         {steps.slice(0, 4).map((step, stepIndex) => (
           <Animated key={step} delay={8 + stepIndex * 5}>
-            <GlassCard style={{ height: 300, padding: 32 }}>
-              <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}><span style={{ color: colors.aqua, fontFamily, fontSize: 26, fontWeight: 800 }}>0{stepIndex + 1}</span><ReviveIcon name={scene.processSteps?.[stepIndex]?.icon || (stepIndex === 2 ? "phone" : "clipboard")} layoutId="process" size={76} /></div>
-              <h2 style={{ color: colors.text, fontFamily, fontSize: 26, fontWeight: 600, lineHeight: 1.2, margin: "70px 0 0" }}>{step}</h2>
+            <GlassCard style={{ height: 330, padding: 34 }}>
+              <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}><span style={{ color: colors.aqua, fontFamily, fontSize: 42, fontWeight: 800 }}>0{stepIndex + 1}</span><ReviveIcon name={scene.processSteps?.[stepIndex]?.icon || (stepIndex === 2 ? "phone" : "clipboard")} layoutId="process" size={112} /></div>
+              <h2 style={{ color: colors.text, fontFamily, fontSize: 30, fontWeight: 600, lineHeight: 1.16, margin: "62px 0 0" }}>{step}</h2>
             </GlassCard>
           </Animated>
         ))}
       </div>
+    </div>
+  );
+}
+
+function PaymentExampleLayout({ scene }: { scene: VideoLessonScene }) {
+  const rows = scene.exampleRows?.length
+    ? scene.exampleRows.slice(0, 4)
+    : [{ label: "Billed fee", value: "$0" }, { label: "Allowed amount", value: "$0" }, { label: "Plan payment", value: "$0" }];
+  return (
+    <div style={{ display: "grid", gap: 42, height: "100%" }}>
+      <Animated>
+        <SectionBadge>Payment Breakdown</SectionBadge>
+        <h1 style={{ color: colors.text, fontFamily, fontSize: 60, fontWeight: 800, lineHeight: 1.06, margin: "28px 0 16px" }}>{scene.title}</h1>
+        <p style={{ color: colors.body, fontFamily, fontSize: 22, lineHeight: 1.4, margin: 0, maxWidth: 1120 }}>{scene.body}</p>
+      </Animated>
+      <div style={{ display: "grid", gap: 22, gridTemplateColumns: `repeat(${Math.min(4, rows.length)}, 1fr)` }}>
+        {rows.map((row, index) => (
+          <Animated key={`${row.label}-${index}`} delay={8 + index * 6}>
+            <GlassCard style={{ height: 260, padding: 32 }}>
+              <div style={{ color: colors.aqua, fontFamily, fontSize: 17, fontWeight: 700, letterSpacing: 2.2, textTransform: "uppercase" }}>{row.label}</div>
+              <div style={{ color: colors.text, fontFamily, fontSize: 52, fontWeight: 800, lineHeight: 1, marginTop: 72 }}>{row.value}</div>
+            </GlassCard>
+          </Animated>
+        ))}
+      </div>
+      {scene.exampleResult && <Animated delay={12 + rows.length * 6}><GlassCard style={{ background: "linear-gradient(110deg, rgba(135,215,210,0.22), rgba(48,56,61,0.78))", borderColor: colors.aqua, padding: "24px 32px" }}><div style={{ color: colors.text, fontFamily, fontSize: 28, fontWeight: 700, lineHeight: 1.3 }}><span style={{ color: colors.aqua }}>POST THIS:</span> {scene.exampleResult}</div></GlassCard></Animated>}
     </div>
   );
 }
@@ -475,8 +501,9 @@ function renderLayout(scene: VideoLessonScene) {
     case "comparison":
       return <ComparisonLayout scene={scene} />;
     case "process":
-    case "example":
       return <ProcessLayout scene={scene} />;
+    case "example":
+      return <PaymentExampleLayout scene={scene} />;
     case "timeline":
       return <TimelineLayout scene={scene} />;
     case "patient-scenario":
