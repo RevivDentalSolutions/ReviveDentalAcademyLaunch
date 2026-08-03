@@ -2,7 +2,6 @@ import type { ComponentType, CSSProperties, ReactNode } from "react";
 import { Img, Video, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { VideoLessonMetadata, VideoLessonScene } from "../lib/video-lessons/videoLessonTypes";
 import type { VideoLessonLayoutId } from "../lib/video-lessons/videoLessonLayouts";
-import { getReviveIconName, getReviveIconUrl, type ReviveIconName } from "../lib/video-lessons/reviveIconRegistry";
 
 const RemotionImg = Img as unknown as ComponentType<{ src: string; style?: CSSProperties }>;
 const RemotionVideo = Video as unknown as ComponentType<{ src: string; style?: CSSProperties; loop?: boolean; muted?: boolean }>;
@@ -99,39 +98,24 @@ export function SectionBadge({ children }: { children: ReactNode }) {
   );
 }
 
-export function ReviveIcon({ name, layoutId, size = 72, treatment = "aqua" }: { name?: string; layoutId?: VideoLessonLayoutId; size?: number; treatment?: "aqua" | "white" }) {
-  const iconName = getReviveIconName(name, layoutId);
-  // The newer approved SVG exports retain a generous 1500px artboard. Scale
-  // those vectors inside their viewport so their artwork reads consistently
-  // beside the tightly cropped legacy icons without altering the source files.
-  const paddedAssetScale: Partial<Record<ReviveIconName, number>> = {
-    calculator: 5,
-    checklist: 5,
-    dollar: 5,
-    lightbulb: 5,
-    patient: 5,
-    question: 5,
-    shield: 5,
-    team: 5,
-    warning: 5,
-  };
-  const scale = paddedAssetScale[iconName] ?? 1;
+const remotionIconMarks: Record<string, string> = {
+  tooth: "✦", clipboard: "✓", calendar: "□", clock: "◷", phone: "⌁", progress: "→",
+  checklist: "✓", calculator: "+", dollar: "$", shield: "◆", team: "◎", patient: "●",
+  question: "?", lightbulb: "✦", warning: "!", video: "▶",
+};
 
-  return (
-    <div style={{ alignItems: "center", display: "flex", height: size, justifyContent: "center", overflow: "hidden", width: size }}>
-      <RemotionImg
-        src={getReviveIconUrl(iconName)}
-        style={{
-          display: "block",
-          filter: treatment === "white" ? "grayscale(1) brightness(4)" : undefined,
-          height: size,
-          objectFit: "contain",
-          transform: `scale(${scale})`,
-          width: size,
-        }}
-      />
-    </div>
-  );
+const remotionLayoutIcons: Partial<Record<VideoLessonLayoutId, string>> = {
+  title: "tooth", "section-divider": "tooth", definition: "clipboard", comparison: "clipboard",
+  process: "clipboard", timeline: "calendar", example: "calculator", "patient-scenario": "patient",
+  quiz: "question", recap: "checklist", "avatar-intro": "video", "avatar-outro": "video",
+};
+
+// Remotion bundles run inside a short-lived serverless environment. Keep its
+// supporting marks self-contained so an MP4 does not depend on a separate UI
+// asset directory being copied into the function package.
+export function ReviveIcon({ name, layoutId, size = 72, treatment = "aqua" }: { name?: string; layoutId?: VideoLessonLayoutId; size?: number; treatment?: "aqua" | "white" }) {
+  const mark = remotionIconMarks[name || (layoutId ? remotionLayoutIcons[layoutId] : "") || "tooth"] || "✦";
+  return <div style={{ alignItems: "center", color: treatment === "white" ? colors.text : colors.aqua, display: "flex", fontFamily, fontSize: Math.round(size * 0.74), fontWeight: 800, height: size, justifyContent: "center", lineHeight: 1, width: size }}>{mark}</div>;
 }
 
 export function IconCircle({ label, icon, layoutId }: { label?: string; icon?: string; layoutId?: VideoLessonLayoutId }) {
@@ -144,14 +128,14 @@ export function IconCircle({ label, icon, layoutId }: { label?: string; icon?: s
         color: colors.aqua,
         display: "flex",
         fontFamily,
-        fontSize: 48,
+        fontSize: 64,
         fontWeight: 800,
-        height: 132,
+        height: 190,
         justifyContent: "center",
-        width: 132,
+        width: 190,
       }}
     >
-      {label || <ReviveIcon name={icon} layoutId={layoutId} size={108} />}
+      {label || <ReviveIcon name={icon} layoutId={layoutId} size={156} />}
     </div>
   );
 }
@@ -167,7 +151,7 @@ export function HexagonFrame({ children }: { children: ReactNode }) {
         display: "flex",
         justifyContent: "center",
         padding: 18,
-        width: 300,
+        width: 430,
       }}
     >
       <div
@@ -254,7 +238,7 @@ export function Divider({ dashed = false }: { dashed?: boolean }) {
   );
 }
 
-export function CalloutCard({ children, style, icon = "warning" }: { children: ReactNode; style?: CSSProperties; icon?: ReviveIconName }) {
+export function CalloutCard({ children, style, icon = "warning" }: { children: ReactNode; style?: CSSProperties; icon?: string }) {
   return (
     <GlassCard style={{ borderLeft: `6px solid ${colors.aqua}`, padding: "26px 30px", ...style }}>
       <div style={{ alignItems: "center", color: colors.body, display: "flex", fontFamily, fontSize: 22, gap: 20, lineHeight: 1.4 }}><ReviveIcon name={icon} size={60} />{children}</div>
@@ -266,7 +250,7 @@ export function ImageFrame({ scene }: { scene: VideoLessonScene }) {
   const mediaUrl = scene.mediaUrl || scene.imageUrl || "";
   const mediaType = scene.mediaType || (mediaUrl ? "image" : "none");
   return (
-    <GlassCard style={{ alignItems: "center", display: "flex", height: 560, justifyContent: "center", padding: 24, width: 590 }}>
+    <GlassCard style={{ alignItems: "center", display: "flex", height: 600, justifyContent: "center", padding: 28, width: 620 }}>
       {mediaUrl && mediaType !== "none" ? (
         mediaType === "video" ? (
           <RemotionVideo src={mediaUrl} loop={scene.loopMedia ?? true} muted style={{ borderRadius: 20, height: "100%", objectFit: scene.mediaFit || "cover", opacity: scene.mediaOpacity ?? 1, width: "100%" }} />
@@ -368,13 +352,39 @@ function ProcessLayout({ scene }: { scene: VideoLessonScene }) {
       <div style={{ alignItems: "stretch", display: "grid", gap: 24, gridTemplateColumns: `repeat(${Math.min(4, steps.length)}, 1fr)` }}>
         {steps.slice(0, 4).map((step, stepIndex) => (
           <Animated key={step} delay={8 + stepIndex * 5}>
-            <GlassCard style={{ height: 300, padding: 32 }}>
-              <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}><span style={{ color: colors.aqua, fontFamily, fontSize: 26, fontWeight: 800 }}>0{stepIndex + 1}</span><ReviveIcon name={scene.processSteps?.[stepIndex]?.icon || (stepIndex === 2 ? "phone" : "clipboard")} layoutId="process" size={76} /></div>
-              <h2 style={{ color: colors.text, fontFamily, fontSize: 26, fontWeight: 600, lineHeight: 1.2, margin: "70px 0 0" }}>{step}</h2>
+            <GlassCard style={{ height: 330, padding: 34 }}>
+              <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}><span style={{ color: colors.aqua, fontFamily, fontSize: 42, fontWeight: 800 }}>0{stepIndex + 1}</span><ReviveIcon name={scene.processSteps?.[stepIndex]?.icon || (stepIndex === 2 ? "phone" : "clipboard")} layoutId="process" size={112} /></div>
+              <h2 style={{ color: colors.text, fontFamily, fontSize: 30, fontWeight: 600, lineHeight: 1.16, margin: "62px 0 0" }}>{step}</h2>
             </GlassCard>
           </Animated>
         ))}
       </div>
+    </div>
+  );
+}
+
+function PaymentExampleLayout({ scene }: { scene: VideoLessonScene }) {
+  const rows = scene.exampleRows?.length
+    ? scene.exampleRows.slice(0, 4)
+    : [{ label: "Billed fee", value: "$0" }, { label: "Allowed amount", value: "$0" }, { label: "Plan payment", value: "$0" }];
+  return (
+    <div style={{ display: "grid", gap: 42, height: "100%" }}>
+      <Animated>
+        <SectionBadge>Payment Breakdown</SectionBadge>
+        <h1 style={{ color: colors.text, fontFamily, fontSize: 60, fontWeight: 800, lineHeight: 1.06, margin: "28px 0 16px" }}>{scene.title}</h1>
+        <p style={{ color: colors.body, fontFamily, fontSize: 22, lineHeight: 1.4, margin: 0, maxWidth: 1120 }}>{scene.body}</p>
+      </Animated>
+      <div style={{ display: "grid", gap: 22, gridTemplateColumns: `repeat(${Math.min(4, rows.length)}, 1fr)` }}>
+        {rows.map((row, index) => (
+          <Animated key={`${row.label}-${index}`} delay={8 + index * 6}>
+            <GlassCard style={{ height: 260, padding: 32 }}>
+              <div style={{ color: colors.aqua, fontFamily, fontSize: 17, fontWeight: 700, letterSpacing: 2.2, textTransform: "uppercase" }}>{row.label}</div>
+              <div style={{ color: colors.text, fontFamily, fontSize: 52, fontWeight: 800, lineHeight: 1, marginTop: 72 }}>{row.value}</div>
+            </GlassCard>
+          </Animated>
+        ))}
+      </div>
+      {scene.exampleResult && <Animated delay={12 + rows.length * 6}><GlassCard style={{ background: "linear-gradient(110deg, rgba(135,215,210,0.22), rgba(48,56,61,0.78))", borderColor: colors.aqua, padding: "24px 32px" }}><div style={{ color: colors.text, fontFamily, fontSize: 28, fontWeight: 700, lineHeight: 1.3 }}><span style={{ color: colors.aqua }}>POST THIS:</span> {scene.exampleResult}</div></GlassCard></Animated>}
     </div>
   );
 }
@@ -418,6 +428,46 @@ function ScenarioLayout({ scene }: { scene: VideoLessonScene }) {
           <p style={{ color: colors.body, fontFamily, fontSize: 22, lineHeight: 1.4, margin: 0 }}>{scene.patientQuote || scene.quizQuestion || scene.body}</p>
           <BulletCards bullets={scene.bullets} />
         </GlassCard>
+      </Animated>
+    </div>
+  );
+}
+
+function QuizLayout({ scene }: { scene: VideoLessonScene }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const choices = scene.quizChoices?.length ? scene.quizChoices.slice(0, 4) : (scene.bullets || []).slice(0, 4);
+  const answerIndex = Math.max(0, Math.min(choices.length - 1, scene.correctAnswerIndex ?? 0));
+  const revealAt = Math.max(4, scene.answerRevealInSeconds ?? 7) * fps;
+  const revealed = frame >= revealAt;
+
+  return (
+    <div style={{ alignItems: "center", display: "grid", gap: 34, gridTemplateColumns: "0.72fr 1.28fr", height: "100%" }}>
+      <Animated>
+        <SectionBadge>{revealed ? "Answer Reveal" : "Pause & Practice"}</SectionBadge>
+        <div style={{ alignItems: "center", background: "rgba(135,215,210,0.08)", border: `3px solid ${colors.aqua}`, borderRadius: "50%", display: "flex", height: 250, justifyContent: "center", marginTop: 38, width: 250 }}>
+          <ReviveIcon name={revealed ? "checklist" : "question"} layoutId="quiz" size={190} />
+        </div>
+        <p style={{ color: colors.aqua, fontFamily, fontSize: 22, fontWeight: 700, lineHeight: 1.35, margin: "34px 0 0", maxWidth: 360 }}>{revealed ? "Here is the reasoning to remember." : "Pause the video. Choose your answer before the reveal."}</p>
+      </Animated>
+      <Animated delay={6}>
+        <h1 style={{ color: colors.text, fontFamily, fontSize: 54, fontWeight: 800, lineHeight: 1.08, margin: 0 }}>{scene.quizQuestion || scene.body || scene.title}</h1>
+        <div style={{ display: "grid", gap: 16, marginTop: 34 }}>
+          {choices.map((choice, index) => {
+            const isCorrect = index === answerIndex;
+            return (
+              <Animated key={`${choice}-${index}`} delay={12 + index * 4}>
+                <GlassCard style={{ background: revealed && isCorrect ? "rgba(135,215,210,0.2)" : undefined, borderColor: revealed && isCorrect ? colors.aqua : "rgba(135,215,210,0.34)", padding: "19px 24px" }}>
+                  <div style={{ alignItems: "center", color: colors.body, display: "flex", fontFamily, fontSize: 23, fontWeight: 600, gap: 18, lineHeight: 1.25 }}>
+                    <span style={{ alignItems: "center", border: `2px solid ${revealed && isCorrect ? colors.aqua : "rgba(135,215,210,0.55)"}`, borderRadius: "50%", color: colors.aqua, display: "flex", flex: "0 0 auto", fontSize: 18, fontWeight: 800, height: 36, justifyContent: "center", width: 36 }}>{revealed && isCorrect ? "✓" : String.fromCharCode(65 + index)}</span>
+                    {choice}
+                  </div>
+                </GlassCard>
+              </Animated>
+            );
+          })}
+        </div>
+        {revealed && scene.quizExplanation && <Animated delay={4}><GlassCard style={{ borderLeft: `6px solid ${colors.aqua}`, marginTop: 26, padding: "20px 24px" }}><p style={{ color: colors.text, fontFamily, fontSize: 21, lineHeight: 1.4, margin: 0 }}><span style={{ color: colors.aqua, fontWeight: 800 }}>WHY:</span> {scene.quizExplanation}</p></GlassCard></Animated>}
       </Animated>
     </div>
   );
@@ -475,13 +525,15 @@ function renderLayout(scene: VideoLessonScene) {
     case "comparison":
       return <ComparisonLayout scene={scene} />;
     case "process":
-    case "example":
       return <ProcessLayout scene={scene} />;
+    case "example":
+      return <PaymentExampleLayout scene={scene} />;
     case "timeline":
       return <TimelineLayout scene={scene} />;
     case "patient-scenario":
-    case "quiz":
       return <ScenarioLayout scene={scene} />;
+    case "quiz":
+      return <QuizLayout scene={scene} />;
     case "recap":
       return <RecapLayout scene={scene} />;
     case "avatar-intro":

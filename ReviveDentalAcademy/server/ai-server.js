@@ -14,6 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createCorsOptions, requireAdmin } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +24,10 @@ const app = express();
 const PORT = process.env.AI_API_PORT || 3002;
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
+  // Keep the health endpoint available in Preview before the paid AI key is configured.
+  // Admin-only generation routes will receive an OpenAI authentication error until
+  // OPENAI_API_KEY is intentionally added to the deployment environment.
+  apiKey: process.env.OPENAI_API_KEY || 'not-configured',
 });
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -50,7 +54,7 @@ function readableCourseSaveError(error) {
 }
 
 app.use(express.json({ limit: '10mb' }));
-app.use(cors());
+app.use(cors(createCorsOptions()));
 
 // ============================================================
 // Health Check
@@ -62,6 +66,9 @@ app.get('/api/ai/health', (req, res) => {
     supabase: supabaseUrl ? 'configured' : 'not configured',
   });
 });
+
+// Course generation can spend money and write with the service role. It is admin-only.
+app.use('/api/ai', requireAdmin);
 
 // ============================================================
 // Generate Full Course (with quizzes & checklists)
@@ -186,7 +193,7 @@ app.post('/api/ai/generate-video-scene-plan', async (req, res) => {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini', temperature: 0.45, max_tokens: 9000, response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `You plan editable Revive Dental Academy video scenes for dental-office education. Return valid JSON only with {"title":"...","scenes":[...]}. Each scene must include id, layoutId, title, body, bullets, narrationScript, durationInSeconds, icon, animationStyle, avatarEnabled. Allowed layoutId values: title, section-divider, definition, comparison, process, timeline, example, patient-scenario, quiz, recap, avatar-intro, avatar-outro. Keep the full spoken passage in narrationScript, but make title/body/bullets concise on-screen copy. Estimate duration at roughly 145 spoken words per minute with a minimum of 4 seconds. Avoid repeating layouts unless the content genuinely contains multiple definitions. Avatar scenes belong only at openings, major transitions, discussion prompts, or closings; most scenes must be voiceover-only. For comparison include comparisonLeftTitle/comparisonLeftPoints/comparisonRightTitle/comparisonRightPoints. For process include processSteps. For timeline include timelineMilestones. For quiz include quizQuestion, quizChoices (2-4), correctAnswerIndex, quizExplanation. For recap include recapItems (up to 4).` },
+        { role: 'system', content: `You plan editable Revive Dental Academy video scenes for dental-office education. Return valid JSON only with {"title":"...","scenes":[...]}. Each scene must include id, layoutId, title, body, bullets, narrationScript, durationInSeconds, icon, animationStyle, avatarEnabled. Allowed layoutId values: title, section-divider, definition, comparison, process, timeline, example, patient-scenario, quiz, recap, avatar-intro, avatar-outro. Keep the full spoken passage in narrationScript, but make title/body/bullets concise on-screen copy. Estimate duration at roughly 145 spoken words per minute with a minimum of 4 seconds. Make every 5–8 seconds feel like a visual teaching beat: favor 6–8 short scenes, large on-screen focal content, a practical workflow, and a quick knowledge check. Avoid generic icon-only slides; icons are supporting accents, never the main lesson visual. For EOB, insurance payment, billing, or collections topics, favor process, example, comparison, patient-scenario, quiz, and recap layouts; use definition sparingly. An example MUST include exampleRows (2–4 realistic labelled values) and exampleResult (the exact posting takeaway). For comparison include comparisonLeftTitle/comparisonLeftPoints/comparisonRightTitle/comparisonRightPoints. For process include processSteps. For timeline include timelineMilestones. A quiz is a pause-and-reveal practice moment inside the video, not an interactive discussion: include quizQuestion, quizChoices (2–4), correctAnswerIndex, quizExplanation, and answerRevealInSeconds (usually 7). Tell the learner to pause and choose before continuing. For recap include recapItems (up to 4). Avoid repeating layouts unless the content genuinely requires it. Avatar scenes belong only at openings, major transitions, discussion prompts, or closings; most scenes must be voiceover-only.` },
         { role: 'user', content: `Lesson title: ${lessonTitle || 'Untitled Lesson'}\nTarget approximately ${Math.max(2, Math.min(16, Number(targetSceneCount) || 6))} scenes.\nInclude quiz: ${Boolean(includeQuiz)}\nInclude avatar intro: ${Boolean(includeAvatarIntro)}\nInclude avatar outro: ${Boolean(includeAvatarOutro)}\n\nNarration:\n${narration.slice(0, 18000)}` },
       ],
     });
@@ -331,9 +338,9 @@ ${(lessonContent || '').substring(0, 3500)}`,
 }
 
 app.post('/api/ai/generate-lesson-video-script', handleGenerateLessonVideoScript);
-app.post('/generate-lesson-video-script', handleGenerateLessonVideoScript);
+app.post('/generate-lesson-video-script', requireAdmin, handleGenerateLessonVideoScript);
 app.post('/api/ai/generate-video-script', handleGenerateLessonVideoScript);
-app.post('/generate-video-script', handleGenerateLessonVideoScript);
+app.post('/generate-video-script', requireAdmin, handleGenerateLessonVideoScript);
 
 // ============================================================
 // Generate AI Video Factory Package
@@ -406,7 +413,7 @@ ${(lessonContent || '').substring(0, 4500)}`,
 }
 
 app.post('/api/ai/generate-video-package', handleGenerateVideoPackage);
-app.post('/generate-video-package', handleGenerateVideoPackage);
+app.post('/generate-video-package', requireAdmin, handleGenerateVideoPackage);
 
 // ============================================================
 // Database Inserter (with quizzes & checklists)
@@ -523,7 +530,7 @@ function formatQuizContent(quiz) {
 // ============================================================
 // Start Server
 // ============================================================
-app.listen(PORT, () => {
+if (!process.env.VERCEL) app.listen(PORT, () => {
   console.log(`\n  🤖 AI Course Generator running on http://localhost:${PORT}`);
   console.log(`  📋 Endpoints:`);
   console.log(`     POST /api/ai/generate-course    (course + quizzes + checklists)`);
@@ -536,3 +543,5 @@ app.listen(PORT, () => {
   console.log(`\n  ⚙️  OpenAI: ${process.env.OPENAI_API_KEY ? '✅' : '❌'} ${process.env.OPENAI_API_KEY ? 'Configured' : 'Not configured'}`);
   console.log(`  ⚙️  Supabase: ${supabaseUrl ? '✅' : '❌'} ${supabaseUrl ? 'Configured' : 'Not configured'}\n`);
 });
+
+export default app;

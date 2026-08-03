@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
+import { supabase } from './lib/supabase';
 import Layout from './components/layout/Layout';
 import Home from './pages/Home';
 import CourseLibrary from './pages/courses/CourseLibrary';
@@ -10,16 +11,29 @@ import MembershipPage from './pages/membership/MembershipPage';
 import OfficeProDashboard from './pages/membership/OfficeProDashboard';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import LoginPage from './pages/auth/LoginPage';
+import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import ResourceCenter from './pages/resources/ResourceCenter';
 import { hasActiveSubscription } from './lib/supabase';
 
 function App() {
+  const navigate = useNavigate();
   const { initialize, isLoading, isAuthenticated, profile } = useAuthStore();
   const [hasOfficeProSubscription, setHasOfficeProSubscription] = useState(false);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    const recoveryFromHash = new URLSearchParams(window.location.hash.slice(1)).get('type') === 'recovery';
+    if (recoveryFromHash) navigate('/reset-password', { replace: true });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') navigate('/reset-password', { replace: true });
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
 
   useEffect(() => {
     let isMounted = true;
@@ -65,6 +79,7 @@ function App() {
       <Route path="/course-player/:courseId" element={<CoursePlayer />} />
       <Route path="/admin" element={<AdminRoute />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="*" element={
         <Layout>
           <Routes>

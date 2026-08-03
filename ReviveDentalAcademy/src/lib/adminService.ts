@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { writeCourseQuiz } from './courseQuiz';
 import type { Course, Module, Lesson, Template, Profile, Subscription, VideoPackage, VideoPackageData } from './supabase';
 import type { CourseLessonOption, VideoLessonMetadata } from './video-lessons/videoLessonTypes';
 import { isCourseLevel, normalizeCourseLevel } from './courseLevel';
@@ -99,7 +100,7 @@ export async function adminGetAllCourses(): Promise<Course[]> {
 export async function adminGetCourseLessonOptions(): Promise<CourseLessonOption[]> {
   const { data, error } = await supabase
     .from('courses')
-    .select('id, title, modules(id, lessons(id, title, order))')
+    .select('id, title, modules(id, lessons(id, title, content, order))')
     .order('title', { ascending: true });
 
   if (error) throw error;
@@ -113,6 +114,7 @@ export async function adminGetCourseLessonOptions(): Promise<CourseLessonOption[
           courseTitle: course.title,
           lessonId: lesson.id,
           lessonTitle: lesson.title,
+          lessonContent: lesson.content || '',
         }))
     ))
   ));
@@ -423,14 +425,18 @@ export interface Quiz {
 
 /** Save a quiz for a lesson */
 export async function adminSaveQuiz(quiz: Omit<Quiz, 'id'>): Promise<Quiz> {
-  // Store quiz in a 'quizzes' table or as JSON in lesson metadata
-  // For now, we'll use the lesson content field to store quiz data
+  const { data: existingLesson, error: existingLessonError } = await supabase
+    .from('lessons')
+    .select('content')
+    .eq('id', quiz.lesson_id)
+    .single();
+
+  if (existingLessonError) throw existingLessonError;
+
   const { data: lesson, error } = await supabase
     .from('lessons')
     .update({
-      content: quiz.questions.map((q, i) => 
-        `## Quiz: ${quiz.title}\n\n**Q${i + 1}:** ${q.question}\n\nOptions:\n${q.options.map((o, j) => `${j === q.correctIndex ? '✓' : '○'} ${o}`).join('\n')}`
-      ).join('\n\n'),
+      content: writeCourseQuiz(existingLesson.content, quiz),
     })
     .eq('id', quiz.lesson_id)
     .select('id')

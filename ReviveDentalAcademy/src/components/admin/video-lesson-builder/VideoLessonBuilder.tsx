@@ -8,9 +8,9 @@ import { createSceneForLayout, validateScene } from "../../../lib/video-lessons/
 import { generateVideoScenePlan } from "../../../lib/aiCourseBuilder";
 import { loadAcademyVideoSettings, saveAcademyVideoSettings, uploadAcademyMediaAsset, uploadAcademyVideoAsset, uploadRemoteAcademyMediaAsset } from "../../../lib/video-lessons/videoLessonSettings";
 import { AssetPreviewPanel, SceneLibrary, SceneVisualEditor } from "./SceneVisualEditor";
-import { ReviveAcademyScene } from "../../../remotion/ReviveAcademyScene";
 import { getLessonDurationInFrames, reviveVideoConfig, VideoLessonComposition } from "../../../remotion/VideoLessonComposition";
 import "./videoLessonBuilder.css";
+import { authenticatedJsonFetch } from "../../../lib/apiClient";
 
 type VideoLessonBuilderProps = {
   initialLesson?: VideoLessonMetadata;
@@ -351,6 +351,27 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
     setMessage("Loaded the Introduction to Key Terms sample lesson.");
   }
 
+  function startFromCourseLesson() {
+    const option = courseLessons.find((item) => item.lessonId === lesson.lessonId);
+    if (!option) {
+      setMessage("Choose a course lesson first, then start its video.");
+      return;
+    }
+    const source = (option.lessonContent || "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/^#{1,6}\s+(?:Training Script|Video Script|Storyboard|Suggested Visuals).*$/gim, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    updateLesson({ courseId: option.courseId, lessonId: option.lessonId, title: option.lessonTitle, description: source.slice(0, 220) });
+    setGeneratorTitle(option.lessonTitle);
+    setGeneratorNarration(source);
+    setGeneratorTarget(7);
+    setGeneratorQuiz(true);
+    setGeneratorOpen(true);
+    setGeneratorState("idle");
+    setMessage(source ? `Loaded ${option.lessonTitle}. Generate a scene plan when you are ready.` : `Attached ${option.lessonTitle}. Add its narration before generating scenes.`);
+  }
+
   function getIntroPlaceholder(): VideoLessonScene {
     return normalizeScene({
       id: "global_intro_placeholder",
@@ -414,6 +435,32 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
     const result = await generateVideoScenePlan({ lessonTitle: generatorTitle || lesson.title, narration: generatorNarration, targetSceneCount: generatorTarget, includeQuiz: generatorQuiz, includeAvatarIntro: generatorAvatarIntro, includeAvatarOutro: generatorAvatarOutro, style: "revive-academy" });
     if (!result.success || !result.lesson) { setGeneratorState("error"); setMessage(result.error || "Unable to generate scene plan."); return; }
     setGeneratedScenes(normalizeVideoLesson(result.lesson).scenes); setGeneratorState("review");
+  }
+
+  async function generateNarrationAudio() {
+    if (!lesson.scenes.length) {
+      setMessage("Add at least one scene before generating narration.");
+      return;
+    }
+
+    setRenderState("rendering");
+    setMessage("Generating narrated MP3 tracks for each scene...");
+    try {
+      const response = await authenticatedJsonFetch("/api/admin/video-lessons/generate-narration", {
+        method: "POST",
+        body: JSON.stringify({ lesson: { ...lesson, academySettings } }),
+      });
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      const result = await response.json() as { lesson?: VideoLessonMetadata; voice?: string };
+      if (!result.lesson?.scenes?.length) throw new Error("Narration completed but no audio tracks were returned.");
+      const narratedLesson = normalizeVideoLesson({ ...lesson, ...result.lesson, academySettings, renderStatus: "draft" });
+      commitLesson(narratedLesson);
+      setRenderState("idle");
+      setMessage(`Narration is ready in ${result.voice || "the selected"} voice. Review the preview, then export the MP4.`);
+    } catch (error) {
+      setRenderState("failed");
+      setMessage(error instanceof Error ? error.message : "Narration generation failed.");
+    }
   }
 
   function applyGeneratedScenes() {
@@ -675,9 +722,8 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
         endpoint: "/api/admin/video-lessons/render",
         method: "POST",
       });
-      const response = await fetch("/api/admin/video-lessons/render", {
+      const response = await authenticatedJsonFetch("/api/admin/video-lessons/render", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lesson: {
             ...exportLesson,
@@ -757,9 +803,8 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
       renderStoragePath: lessonToAttach.renderStoragePath,
     });
 
-    const response = await fetch("/api/admin/video-lessons/attach", {
+    const response = await authenticatedJsonFetch("/api/admin/video-lessons/attach", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lesson: lessonToAttach }),
     });
 
@@ -798,6 +843,9 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
           </button>
           <button type="button" onClick={saveMetadata}>
             Save Metadata
+          </button>
+          <button type="button" onClick={generateNarrationAudio} disabled={renderState === "rendering"}>
+            Generate Narration Audio
           </button>
           <button type="button" className="vlb-primary" onClick={renderMp4} disabled={renderState === "rendering"}>
             {renderState === "rendering" ? "Rendering..." : "Export MP4"}
@@ -917,6 +965,9 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
                 </label>
               </div>
               <div className="vlb-inline-actions">
+                <button type="button" onClick={() => { updateAcademySettings({ introDurationInSeconds: 4, outroDurationInSeconds: 3 }); setMessage("Short lesson bumpers selected: 4s intro and 3s outro. Save Settings to use them for exports."); }} disabled={!academySettings.introVideoUrl && !academySettings.outroVideoUrl}>
+                  Use Short Lesson Bumpers (4s / 3s)
+                </button>
                 <button type="button" className="vlb-primary" onClick={saveSettings} disabled={settingsState === "saving" || settingsState === "uploading"}>
                   {settingsState === "saving" ? "Saving..." : settingsState === "uploading" ? "Uploading..." : "Save Settings"}
                 </button>
@@ -1180,7 +1231,7 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
           <section className="vlb-panel vlb-preview">
             <div className="vlb-preview-toolbar"><div><button type="button" className={previewMode === "scene" ? "is-active" : ""} onClick={() => setPreviewMode("scene")}>Scene only</button><button type="button" className={previewMode === "lesson" ? "is-active" : ""} onClick={() => setPreviewMode("lesson")}>Full lesson</button></div><div><button type="button" disabled={selectedSceneIndex === 0} onClick={() => setSelectedSceneId(lesson.scenes[selectedSceneIndex - 1]?.id || selectedSceneId)}>Previous</button><button type="button" disabled={selectedSceneIndex >= lesson.scenes.length - 1} onClick={() => setSelectedSceneId(lesson.scenes[selectedSceneIndex + 1]?.id || selectedSceneId)}>Next</button></div></div>
             <div className="vlb-preview-frame">
-              {selectedScene && previewMode === "scene" && <Player component={ReviveAcademyScene} inputProps={{ scene: selectedScene, index: selectedSceneIndex, lesson }} durationInFrames={Math.max(4, selectedScene.durationInSeconds || 8) * reviveVideoConfig.fps} compositionWidth={reviveVideoConfig.width} compositionHeight={reviveVideoConfig.height} fps={reviveVideoConfig.fps} controls loop style={{ width: "100%" }} />}
+              {selectedScene && previewMode === "scene" && <Player component={VideoLessonComposition} inputProps={{ lesson: { ...lesson, scenes: [selectedScene], academySettings: { ...academySettings, introVideoUrl: "", outroVideoUrl: "" } } }} durationInFrames={Math.max(4, selectedScene.durationInSeconds || 8) * reviveVideoConfig.fps} compositionWidth={reviveVideoConfig.width} compositionHeight={reviveVideoConfig.height} fps={reviveVideoConfig.fps} controls loop style={{ width: "100%" }} />}
               {previewMode === "lesson" && <Player component={VideoLessonComposition} inputProps={{ lesson: { ...lesson, academySettings } }} durationInFrames={getLessonDurationInFrames({ ...lesson, academySettings })} compositionWidth={reviveVideoConfig.width} compositionHeight={reviveVideoConfig.height} fps={reviveVideoConfig.fps} controls style={{ width: "100%" }} />}
               <div className="vlb-legacy-preview" aria-hidden="true">
               <div className="vlb-slide">
@@ -1263,6 +1314,9 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
                 </option>
               ))}
             </select>
+            <button type="button" onClick={startFromCourseLesson} disabled={!lesson.lessonId}>
+              Start Video From Lesson
+            </button>
             <button type="button" onClick={() => attachToCourseLesson()}>
               Attach to Lesson
             </button>

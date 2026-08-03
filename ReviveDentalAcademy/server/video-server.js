@@ -9,11 +9,14 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
 import { createClient } from '@supabase/supabase-js';
+import OpenAI from 'openai';
 import { createHeyGenVideo, getHeyGenVideoStatus } from './heygenService.js';
+import { authenticateRequest, createCorsOptions, requireAdmin } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,9 +50,25 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const ACADEMY_MEDIA_BUCKET = process.env.SUPABASE_ACADEMY_MEDIA_BUCKET || process.env.VITE_SUPABASE_VIDEO_BUCKET || 'academy-media';
 const RENDER_BUCKET = process.env.SUPABASE_RENDER_BUCKET || process.env.VITE_SUPABASE_RENDER_BUCKET || 'lesson-videos';
 const SIGNED_PLAYBACK_URL_TTL_SECONDS = Number(process.env.SIGNED_PLAYBACK_URL_TTL_SECONDS || 60 * 60);
+const DEFAULT_NARRATION_VOICE = process.env.OPENAI_TTS_VOICE || 'marin';
+const NARRATION_INSTRUCTIONS = 'Speak with a calm, confident, professional training tone for dental office staff. Use clear pacing, natural emphasis on insurance terminology, and a warm, encouraging delivery.';
+
+function resolveRemotionEntryPoint() {
+  const candidates = [
+    path.resolve(process.cwd(), 'src', 'remotion', 'index.ts'),
+    path.resolve(process.cwd(), 'ReviveDentalAcademy', 'src', 'remotion', 'index.ts'),
+    path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts'),
+    path.resolve(__dirname, '..', '..', 'src', 'remotion', 'index.ts'),
+  ];
+  const entryPoint = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!entryPoint) {
+    throw new Error(`Remotion entry point was not included in this deployment. Checked: ${candidates.join(', ')}`);
+  }
+  return entryPoint;
+}
 
 app.use(express.json({ limit: process.env.VIDEO_API_JSON_LIMIT || '200mb' }));
-app.use(cors());
+app.use(cors(createCorsOptions()));
 
 function normalizeHeyGenStatus(status) {
   if (['completed', 'complete', 'success', 'done'].includes(status)) return 'completed';
@@ -278,12 +297,26 @@ function getVideoLessonDurationInFrames(lesson) {
 
 function requireSupabaseClient() {
   if (!supabaseUrl || !supabaseServiceKey) {
-    const error = new Error('Missing Supabase env vars: SUPABASE_URL/VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+    const error = new Error('Missing Supabase env vars: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
     error.statusCode = 503;
     throw error;
   }
 
   return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+function requireOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    const error = new Error('Missing OPENAI_API_KEY. Add it to the Preview environment before generating narration.');
+    error.statusCode = 503;
+    throw error;
+  }
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
+
+function estimateNarrationSeconds(script) {
+  const wordCount = String(script || '').trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(4, Math.ceil((wordCount / 2.2) + 1));
 }
 
 app.get('/api/video/health', (_req, res) => {
@@ -292,6 +325,122 @@ app.get('/api/video/health', (_req, res) => {
     heygen: process.env.HEYGEN_API_KEY ? 'configured' : 'not configured',
     supabase: supabaseUrl && supabaseServiceKey ? 'configured' : 'not configured',
   });
+});
+
+// Builder settings, uploads, rendering, and attachment all use the service role.
+app.use('/api/admin/video-lessons', requireAdmin);
+
+// Generates a separate MP3 for every scene so Remotion can keep narration in sync
+// with the approved branded slide layouts. Files are created server-side; the
+// OpenAI key and Supabase service role are never exposed to the browser.
+app.post('/api/admin/video-lessons/generate-narration', async (req, res) => {
+  try {
+    const lesson = normalizeVideoLesson(req.body?.lesson);
+    if (!lesson.scenes.length) {
+      return res.status(400).json({ error: 'Add at least one scene before generating narration.' });
+    }
+
+    const supabase = requireSupabaseClient();
+    const openai = requireOpenAIClient();
+    const voice = String(req.body?.voice || DEFAULT_NARRATION_VOICE).trim() || DEFAULT_NARRATION_VOICE;
+    const coursePath = String(lesson.courseId || 'unassigned-course').replace(/[^a-zA-Z0-9_-]/g, '-');
+    const lessonPath = String(lesson.lessonId || lesson.id).replace(/[^a-zA-Z0-9_-]/g, '-');
+    const timestamp = Date.now();
+
+    const scenes = [];
+    for (let index = 0; index < lesson.scenes.length; index += 1) {
+      const scene = lesson.scenes[index];
+      const script = String(scene.narrationScript || '').trim();
+      if (!script) {
+        const error = new Error(`Scene ${index + 1} is missing narration text.`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const speech = await openai.audio.speech.create({
+        model: 'gpt-4o-mini-tts',
+        voice,
+        input: script,
+        instructions: NARRATION_INSTRUCTIONS,
+        response_format: 'mp3',
+      });
+      const storagePath = `course-audio/${coursePath}/${lessonPath}/${timestamp}-${String(index + 1).padStart(2, '0')}-${String(scene.id).replace(/[^a-zA-Z0-9_-]/g, '-')}.mp3`;
+      const { error: uploadError } = await supabase.storage
+        .from(ACADEMY_MEDIA_BUCKET)
+        .upload(storagePath, Buffer.from(await speech.arrayBuffer()), {
+          contentType: 'audio/mpeg',
+          cacheControl: '31536000',
+          upsert: false,
+        });
+      if (uploadError) throw uploadError;
+
+      const narrationUrl = supabase.storage.from(ACADEMY_MEDIA_BUCKET).getPublicUrl(storagePath).data.publicUrl;
+      scenes.push({
+        ...scene,
+        narrationUrl,
+        narrationStoragePath: storagePath,
+        narrationVoice: voice,
+        durationInSeconds: Math.max(Number(scene.durationInSeconds || 0), estimateNarrationSeconds(script)),
+      });
+    }
+
+    return res.json({ lesson: { ...lesson, scenes }, voice });
+  } catch (err) {
+    console.error('Lesson narration generation error:', err);
+    const payload = getErrorPayload(err, 'Failed to generate lesson narration.');
+    return res.status(payload.status).json(payload);
+  }
+});
+
+// Queue-first render API. The persistent worker will claim these rows; the existing
+// synchronous /render route remains available only for local backwards compatibility
+// until the worker rollout is verified in private staging.
+app.post('/api/admin/video-lessons/render-jobs', async (req, res) => {
+  try {
+    const lesson = normalizeVideoLesson(req.body?.lesson);
+    if (!lesson.scenes.length) {
+      return res.status(400).json({ error: 'Add at least one scene before queuing a render.' });
+    }
+
+    const supabase = requireSupabaseClient();
+    const { data: job, error } = await supabase
+      .from('video_render_jobs')
+      .insert({
+        requested_by: req.auth.user.id,
+        course_id: lesson.courseId || null,
+        lesson_id: lesson.lessonId || null,
+        lesson_payload: lesson,
+        status: 'queued',
+      })
+      .select('id, status, created_at')
+      .single();
+    if (error) throw error;
+
+    return res.status(202).json({ job, message: 'Video render queued.' });
+  } catch (err) {
+    console.error('Video render queue error:', err);
+    const payload = getErrorPayload(err, 'Unable to queue the video render.');
+    return res.status(payload.status).json(payload);
+  }
+});
+
+app.get('/api/admin/video-lessons/render-jobs/:jobId', async (req, res) => {
+  try {
+    const supabase = requireSupabaseClient();
+    const { data: job, error } = await supabase
+      .from('video_render_jobs')
+      .select('id, status, attempts, storage_bucket, storage_path, error_message, created_at, started_at, completed_at, updated_at')
+      .eq('id', req.params.jobId)
+      .eq('requested_by', req.auth.user.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!job) return res.status(404).json({ error: 'Render job not found.' });
+    return res.json({ job });
+  } catch (err) {
+    console.error('Video render job status error:', err);
+    const payload = getErrorPayload(err, 'Unable to read render status.');
+    return res.status(payload.status).json(payload);
+  }
 });
 
 app.get('/api/admin/video-lessons/academy-settings', async (_req, res) => {
@@ -453,15 +602,16 @@ app.post('/api/admin/video-lessons/render', async (req, res) => {
     const compositionId = 'ReviveVideoLesson';
     const safeId = lesson.id.replace(/[^a-zA-Z0-9_-]/g, '-');
     const outName = `${safeId}.mp4`;
-    const exportsDir = path.resolve(__dirname, '..', 'public', 'exports');
+    const exportsDir = path.join(os.tmpdir(), 'revive-video-exports');
     const outPath = path.join(exportsDir, outName);
     fs.mkdirSync(exportsDir, { recursive: true });
+    const remotionEntryPoint = resolveRemotionEntryPoint();
 
     renderLog.log('Remotion bundle started', {
-      entryPoint: path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts'),
+      entryPoint: remotionEntryPoint,
     });
     const bundled = await bundle({
-      entryPoint: path.resolve(__dirname, '..', 'src', 'remotion', 'index.ts'),
+      entryPoint: remotionEntryPoint,
     });
 
     renderLog.log('Remotion composition selected', {
@@ -670,10 +820,11 @@ app.post('/api/admin/video-lessons/attach', async (req, res) => {
   }
 });
 
-app.post('/api/video/lesson-playback-url', async (req, res) => {
+app.post('/api/video/lesson-playback-url', authenticateRequest, async (req, res) => {
   const playbackLog = createStepLogger('VideoLesson Playback');
   try {
     const source = req.body?.videoUrl || req.body?.storageRef || '';
+    const lessonId = req.body?.lessonId || '';
     playbackLog.log('Playback URL request received', {
       hasSource: Boolean(source),
     });
@@ -685,6 +836,39 @@ app.post('/api/video/lesson-playback-url', async (req, res) => {
         details: 'CoursePlayer must send the lesson video_url or storage reference.',
         playbackLog: playbackLog.steps,
       });
+    }
+
+    if (!lessonId) {
+      return res.status(400).json({ status: 400, error: 'A lesson ID is required for private video playback.' });
+    }
+
+    const supabase = requireSupabaseClient();
+    const { data: lesson, error: lessonError } = await supabase
+      .from('lessons')
+      .select('id, video_url, modules!inner(course_id)')
+      .eq('id', lessonId)
+      .maybeSingle();
+    if (lessonError) throw lessonError;
+    if (!lesson || lesson.video_url !== source) {
+      return res.status(404).json({ status: 404, error: 'The requested lesson video was not found.' });
+    }
+
+    const courseId = lesson.modules?.course_id;
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', req.auth.user.id)
+      .maybeSingle();
+    if (profileError) throw profileError;
+
+    const isAdmin = profile?.role === 'admin';
+    const [{ data: subscription, error: subscriptionError }, { data: purchase, error: purchaseError }] = await Promise.all([
+      supabase.from('subscriptions').select('id').eq('user_id', req.auth.user.id).in('status', ['active', 'trialing']).maybeSingle(),
+      supabase.from('purchases').select('id').eq('user_id', req.auth.user.id).eq('course_id', courseId).eq('status', 'completed').maybeSingle(),
+    ]);
+    if (subscriptionError || purchaseError) throw subscriptionError || purchaseError;
+    if (!isAdmin && !subscription && !purchase) {
+      return res.status(403).json({ status: 403, error: 'You do not have access to this lesson video.' });
     }
 
     const storageRef = parseStorageRef(source);
@@ -699,7 +883,6 @@ app.post('/api/video/lesson-playback-url', async (req, res) => {
       });
     }
 
-    const supabase = requireSupabaseClient();
     const result = await createPlayableVideoUrl(supabase, source, req.body?.expiresIn);
     playbackLog.log('Fresh signed playback URL generated', {
       bucket: result.storageRef.bucket,
@@ -718,7 +901,7 @@ app.post('/api/video/lesson-playback-url', async (req, res) => {
   }
 });
 
-app.post('/api/video/generate-heygen-video', async (req, res) => {
+app.post('/api/video/generate-heygen-video', requireAdmin, async (req, res) => {
   const { lessonId, title, narration, storyboard, brandStyle } = req.body;
 
   if (!lessonId || !title || !narration) {
@@ -755,7 +938,7 @@ app.post('/api/video/generate-heygen-video', async (req, res) => {
   }
 });
 
-app.get('/api/video/heygen-status/:videoId', async (req, res) => {
+app.get('/api/video/heygen-status/:videoId', requireAdmin, async (req, res) => {
   if (!process.env.HEYGEN_API_KEY) {
     return res.status(503).json({
       status: 503,
@@ -782,7 +965,7 @@ app.get('/api/video/heygen-status/:videoId', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+if (!process.env.VERCEL) app.listen(PORT, () => {
   console.log(`\n  Video server running on http://localhost:${PORT}`);
   console.log('  Endpoints:');
   console.log('     GET  /api/video/health');
@@ -797,3 +980,5 @@ app.listen(PORT, () => {
   console.log('     GET  /api/video/heygen-status/:videoId');
   console.log(`  HeyGen: ${process.env.HEYGEN_API_KEY ? 'Configured' : 'Not configured'}\n`);
 });
+
+export default app;

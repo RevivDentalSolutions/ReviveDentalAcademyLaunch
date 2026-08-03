@@ -288,7 +288,7 @@ export async function generateVideoPackage(request: {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (session) headers['Authorization'] = `Bearer ${session.access_token}`;
 
-    const response = await fetch('/api/ai/generate-video-package', {
+    const response = await fetch(`${AI_API_URL}/generate-video-package`, {
       method: 'POST',
       headers,
       body: JSON.stringify(request),

@@ -8,6 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "start:ai": "node server/ai-server.js",
+    "start:stripe": "node server/stripe-server.js",
+    "start:video": "node server/video-server.js",
+    "start:video-worker": "node server/video-worker.js",
+    "check:servers": "node --check server/auth.js && node --check server/ai-server.js && node --check server/stripe-server.js && node --check server/video-server.js && node --check server/video-worker.js",
     "remotion:studio": "remotion studio src/remotion/index.ts",
     "remotion:render": "remotion render src/remotion/index.ts ReviveVideoLesson public/exports/video-lesson.mp4"
   },

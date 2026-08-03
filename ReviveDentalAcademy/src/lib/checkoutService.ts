@@ -1,5 +1,6 @@
 import { validateCoupon } from './stripe'
 import { supabase } from './supabase'
+import { authenticatedJsonFetch } from './apiClient'
 
 // ============================================================
 // Checkout Types
@@ -47,6 +48,7 @@ export async function createCheckoutSession(
 ): Promise<CheckoutResult> {
   try {
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: 'Please sign in before checkout.' }
 
     // Validate coupon if provided
     if (config.couponCode) {
@@ -56,17 +58,11 @@ export async function createCheckoutSession(
       }
     }
 
-    const response = await fetch(`${STRIPE_API_URL}/create-checkout-session`, {
+    const response = await authenticatedJsonFetch(`${STRIPE_API_URL}/create-checkout-session`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ...config,
-        userId: user?.id,
-        metadata: {
-          ...config.metadata,
-          product_id: config.productId,
-          product_type: config.productType,
-        },
+        productId: config.productId,
+        productType: config.productType,
       }),
     })
 
