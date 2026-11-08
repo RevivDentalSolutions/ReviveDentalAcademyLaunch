@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
+    allowedHosts: ['terminal.local'],
     port: 5173,
     proxy: {
       // Proxy Stripe API requests to your backend server

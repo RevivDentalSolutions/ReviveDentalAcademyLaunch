@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { CourseDraftEditor } from '../../components/admin/CourseDraftEditor';
+import { validateCourseDraft } from '../../lib/courseContent';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -290,6 +292,8 @@ function getSavedAIDraft() {
       prompt: typeof parsed.prompt === 'string' ? parsed.prompt : '',
       audience: typeof parsed.audience === 'string' ? parsed.audience : 'Office Managers',
       objectives: typeof parsed.objectives === 'string' ? parsed.objectives : '',
+      course: parsed.course?.modules ? { ...parsed.course, draftId: parsed.course.draftId || crypto.randomUUID() } as AIGeneratedCourse : null,
+      topic: typeof parsed.topic === 'string' ? parsed.topic : '',
     };
   } catch {
     return { prompt: '', audience: 'Office Managers', objectives: '' };
@@ -323,6 +327,10 @@ const AdminDashboard = () => {
   const [heyGenStatuses, setHeyGenStatuses] = useState<Record<string, HeyGenLessonStatus>>({});
   const [copiedVideoAction, setCopiedVideoAction] = useState<string | null>(null);
   const [newModule, setNewModule] = useState<ModuleDraft>({ title: '', description: '', order: 1 });
+  const dirtyLessons = useRef(new Map<string, Lesson>());
+  const lessonSaveBusy = useRef(false);
+  const [lessonSaveStatus, setLessonSaveStatus] = useState('');
+  const [lessonRevision, setLessonRevision] = useState(0);
   const [newLessons, setNewLessons] = useState<Record<string, LessonDraft>>({});
 
   // Templates data
@@ -336,11 +344,12 @@ const AdminDashboard = () => {
 
   // AI Builder state
   const [aiPrompt, setAiPrompt] = useState(savedAIDraft.prompt);
-  const [courseTopic, setCourseTopic] = useState('');
+  const [courseTopic, setCourseTopic] = useState(savedAIDraft.topic || '');
   const [targetAudience, setTargetAudience] = useState(savedAIDraft.audience);
   const [learningObjectives, setLearningObjectives] = useState(savedAIDraft.objectives);
   const [aiStatus, setAiStatus] = useState<AIGenerationStatus>({ phase: 'idle' });
-  const [aiPreviewCourse, setAiPreviewCourse] = useState<AIGeneratedCourse | null>(null);
+  const [aiPreviewCourse, setAiPreviewCourse] = useState<AIGeneratedCourse | null>(savedAIDraft.course || null);
+  const savingAICourse = useRef(false);
   const [courseLessonOptions, setCourseLessonOptions] = useState<CourseLessonOption[]>([]);
 
   // Quiz builder state
@@ -397,15 +406,17 @@ const AdminDashboard = () => {
   }, [activeTab, loadData]);
 
   useEffect(() => {
-    window.localStorage.setItem(
+    try { window.localStorage.setItem(
       AI_DRAFT_STORAGE_KEY,
       JSON.stringify({
         prompt: aiPrompt,
         audience: targetAudience,
         objectives: learningObjectives,
+        topic: courseTopic,
+        course: aiPreviewCourse,
       })
-    );
-  }, [aiPrompt, targetAudience, learningObjectives]);
+    ); } catch { setError('Browser draft storage is unavailable. Save your course or export a backup before leaving.'); }
+  }, [aiPrompt, targetAudience, learningObjectives, courseTopic, aiPreviewCourse]);
 
   // ============================================================
   // Actions
@@ -452,12 +463,23 @@ const AdminDashboard = () => {
   }
 
   async function handleManageContent(course: Course) {
+    if (dirtyLessons.current.size) { setError('Wait for lesson saves or retry the unsaved changes before switching courses.'); return; }
     setContentCourse(course);
     setLoadingContent(true);
     setError(null);
     try {
       const { modules } = await getCourseWithContent(course.id);
-      setContentModules(modules);
+      const recovered = modules.map(m => ({...m, lessons:m.lessons?.map(l => {
+        try { const raw = localStorage.getItem(`revive-lesson-recovery:${l.id}`);
+          if (raw && window.confirm(`Restore unsaved edits for ${l.title}?`)) {
+            const draft = JSON.parse(raw); const next = {...l,title:draft.title,content:draft.content,video_url:draft.video_url,duration:draft.duration,order:draft.order};
+            dirtyLessons.current.set(l.id,next); return next;
+          }
+        } catch { /* Keep the saved database lesson if recovery is malformed. */ }
+        return l;
+      })}));
+      setContentModules(recovered);
+      if (dirtyLessons.current.size) setLessonRevision(v => v + 1);
       setNewModule({ title: '', description: '', order: modules.length + 1 });
       setNewLessons(
         Object.fromEntries(
@@ -521,17 +543,53 @@ const AdminDashboard = () => {
   }
 
   function handleLessonDraftChange(moduleId: string, lessonId: string, field: keyof LessonDraft, value: string | number) {
-    setContentModules(prev => prev.map(module => (
-      module.id === moduleId
-        ? {
-            ...module,
-            lessons: module.lessons?.map(lesson => (
-              lesson.id === lessonId ? { ...lesson, [field]: value } : lesson
-            )),
-          }
-        : module
-    )));
+    const current = dirtyLessons.current.get(lessonId) || contentModules.find(m => m.id === moduleId)?.lessons?.find(l => l.id === lessonId);
+    if (!current) return;
+    const next = { ...current, [field]: value };
+    dirtyLessons.current.set(lessonId, next);
+    try { localStorage.setItem(`revive-lesson-recovery:${lessonId}`, JSON.stringify(next)); }
+    catch { setLessonSaveStatus('Browser backup unavailable. Keep this page open until saved.'); }
+    setContentModules(prev => prev.map(m => m.id === moduleId ? {...m, lessons:m.lessons?.map(l => l.id === lessonId ? next : l)} : m));
+    setLessonSaveStatus('Unsaved changes — saving shortly…');
+    setLessonRevision(v => v + 1);
   }
+
+  useEffect(() => {
+    if (!dirtyLessons.current.size) return;
+    const timer = window.setTimeout(async () => {
+      if (lessonSaveBusy.current) { setLessonRevision(v => v + 1); return; }
+      lessonSaveBusy.current = true;
+      setLessonSaveStatus('Saving lesson changes…');
+      let failed = false;
+      for (const [id, snapshot] of [...dirtyLessons.current]) {
+        try {
+          const updated = await adminUpdateLesson(id, {title:snapshot.title,content:snapshot.content || '',video_url:snapshot.video_url || '',duration:snapshot.duration || '',order:snapshot.order}, snapshot.updated_at);
+          const latest = dirtyLessons.current.get(id);
+          if (latest === snapshot) {
+            dirtyLessons.current.delete(id);
+            try { localStorage.removeItem(`revive-lesson-recovery:${id}`); } catch { /* Database save succeeded. */ }
+          } else if (latest) dirtyLessons.current.set(id, {...latest, updated_at: updated.updated_at});
+          setContentModules(prev => prev.map(m => ({...m, lessons:m.lessons?.map(l => l.id === id ? {...l,updated_at:updated.updated_at} : l)})));
+        } catch (error) {
+          failed = true;
+          setLessonSaveStatus(`Not saved: ${error instanceof Error ? error.message : 'Connection or edit conflict'}. Browser recovery copy retained. Edit again to retry.`);
+          break;
+        }
+      }
+      lessonSaveBusy.current = false;
+      if (!failed) {
+        if (dirtyLessons.current.size) setLessonRevision(v => v + 1);
+        else setLessonSaveStatus('All lesson changes saved');
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [lessonRevision]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (dirtyLessons.current.size) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
 
   function handleNewLessonChange(moduleId: string, field: keyof LessonDraft, value: string | number) {
     setNewLessons(prev => ({
@@ -564,31 +622,7 @@ const AdminDashboard = () => {
   }
 
   async function handleUpdateLesson(moduleId: string, lesson: Lesson) {
-    if (!lesson.title.trim()) return;
-    setSavingContent(true);
-    try {
-      const updatedLesson = await adminUpdateLesson(lesson.id, {
-        title: lesson.title,
-        content: lesson.content || '',
-        video_url: lesson.video_url || '',
-        duration: lesson.duration || '',
-        order: lesson.order,
-      });
-      setContentModules(prev => prev.map(module => (
-        module.id === moduleId
-          ? {
-              ...module,
-              lessons: module.lessons
-                ?.map(item => item.id === lesson.id ? updatedLesson : item)
-                .sort((a, b) => a.order - b.order),
-            }
-          : module
-      )));
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSavingContent(false);
-    }
+    handleLessonDraftChange(moduleId, lesson.id, 'content', lesson.content || '');
   }
 
   async function handleGenerateVideoScript(module: Module, lesson: Lesson) {
@@ -905,8 +939,7 @@ const AdminDashboard = () => {
   async function handleGenerateCourse() {
     if (!aiPrompt.trim()) return;
     setAiStatus({ phase: 'generating', message: 'Connecting to AI engine...' });
-    setAiPreviewCourse(null);
-    
+    // Keep the prior draft if generation fails.
     const result = await generateCourse(
       {
         topic: courseTopic || aiPrompt.slice(0, 80),
@@ -919,7 +952,7 @@ const AdminDashboard = () => {
     );
 
     if (result.success && result.course) {
-      setAiPreviewCourse(result.course);
+      setAiPreviewCourse({ ...result.course, draftId: crypto.randomUUID() });
       setAiStatus({ phase: 'idle' });
     } else if (!result.success) {
       setAiStatus({ phase: 'error', error: toReadableString(result.error, 'Failed to generate course') });
@@ -927,6 +960,7 @@ const AdminDashboard = () => {
   }
 
   function handleClearAIDraft() {
+    if (aiPreviewCourse && !window.confirm('Clear this browser draft? Export a backup first if needed.')) return;
     setAiPrompt('');
     setTargetAudience('Office Managers');
     setLearningObjectives('');
@@ -936,24 +970,20 @@ const AdminDashboard = () => {
   }
 
   async function handleSaveAICourse() {
-    if (!aiPreviewCourse) return;
+    if (!aiPreviewCourse || savingAICourse.current || aiStatus.phase === 'done') return;
+    savingAICourse.current = true;
     setAiStatus({ phase: 'saving' });
     try {
       const courseId = await adminSaveFullCourse(aiPreviewCourse);
       setAiStatus({ phase: 'done', courseId });
-      // Refresh course list
-      const c = await adminGetAllCourses();
-      setCourses(c);
-      setTimeout(() => {
-        setAiPreviewCourse(null);
-        setAiPrompt('');
-        setCourseTopic('');
-        setLearningObjectives('');
-        setActiveTab('courses');
-      }, 2000);
+      const c = await adminGetAllCourses().catch(() => null);
+      if (c) setCourses(c);
+      setActiveTab('courses');
+      const saved = c?.find(item => item.id === courseId);
+      if (saved) await handleManageContent(saved);
     } catch (err: any) {
       setAiStatus({ phase: 'error', error: err.message });
-    }
+    } finally { savingAICourse.current = false; }
   }
   // ============================================================
   // Render: Sidebar
@@ -1013,11 +1043,6 @@ const AdminDashboard = () => {
   const renderAIBuilder = () => {
     const aiPreview = aiPreviewCourse;
     const aiError = aiStatus.phase === 'error' ? aiStatus.error : null;
-    const scripts = aiPreview?.modules?.flatMap(module =>
-      module.lessons
-        ?.filter(lesson => lesson.script)
-        .map(lesson => ({ lessonTitle: lesson.title, script: lesson.script || '' })) || []
-    ) || [];
 
     return (
       <div className="max-w-6xl">
@@ -1027,6 +1052,27 @@ const AdminDashboard = () => {
             <span className="uppercase tracking-[0.2em] text-[10px] font-bold">AI Course Builder</span>
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Build a Course Draft</h1>
+          <div className="my-4 flex flex-wrap gap-4 text-secondary">
+            <label className="cursor-pointer">Upload material or course backup
+              <input type="file" className="block text-sm" accept=".txt,.md,.json" onChange={async e => {
+                const file = e.target.files?.[0]; if (!file) return;
+                try {
+                  if (file.size > 2000000) throw new Error('Use a text or JSON file under 2 MB.');
+                  const text = await file.text();
+                  if (file.name.endsWith('.json')) {
+                    const data = JSON.parse(text); validateCourseDraft(data);
+                    if (aiPreviewCourse && !window.confirm('Replace the current browser draft? Export a backup first if needed.')) return;
+                    setAiPreviewCourse({...data,draftId:data.draftId || crypto.randomUUID()}); setAiStatus({phase:'idle'});
+                  } else { setAiPrompt(text); }
+                } catch (err) { setError(err instanceof Error ? err.message : 'Unable to import this file.'); }
+                e.target.value = '';
+              }} />
+            </label>
+            <button disabled={!aiPreviewCourse} onClick={() => {
+              const url = URL.createObjectURL(new Blob([JSON.stringify(aiPreviewCourse,null,2)],{type:'application/json'}));
+              const a = document.createElement('a'); a.href=url; a.download='revive-course-draft.json'; a.click(); URL.revokeObjectURL(url);
+            }}>Export course backup</button>
+          </div>
           <p className="text-gray-400">Generate a complete draft, review every section, then save it as a new unpublished course.</p>
         </div>
 
@@ -1130,7 +1176,7 @@ const AdminDashboard = () => {
                         className="flex items-center gap-2 bg-brand-teal text-charcoal font-bold py-3 px-5 rounded-xl hover:bg-brand-teal/90 transition-all disabled:opacity-50"
                       >
                         {aiStatus.phase === 'saving' ? <Loader className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                        <span>{aiStatus.phase === 'done' ? 'Saved' : aiStatus.phase === 'saving' ? 'Saving...' : 'Save to Supabase'}</span>
+                        <span>{aiStatus.phase === 'done' ? 'Saved' : aiStatus.phase === 'saving' ? 'Saving...' : 'Save course draft'}</span>
                       </button>
                       <button
                         onClick={() => {
@@ -1145,94 +1191,8 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                {aiPreview.checklist?.length ? (
-                  <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6">
-                    <h3 className="text-sm font-bold text-white uppercase tracking-widest mb-4">Checklist</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {aiPreview.checklist.map((item, index) => (
-                        <div key={index} className="flex items-start gap-3 bg-white/5 rounded-lg p-3 text-sm text-gray-300">
-                          <CheckCircle className="h-4 w-4 text-brand-mint mt-0.5 flex-shrink-0" />
-                          <span>{item}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                <CourseDraftEditor course={aiPreview} onChange={setAiPreviewCourse} />
 
-                <div className="space-y-4">
-                  {aiPreview.modules?.map((module, moduleIndex) => (
-                    <div key={moduleIndex} className="bg-white/[0.02] border border-white/5 rounded-xl p-6">
-                      <div className="flex items-start justify-between gap-4 mb-5">
-                        <div>
-                          <h3 className="text-white font-bold flex items-center gap-3">
-                            <span className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-[11px] text-brand-mint font-mono">{module.order || moduleIndex + 1}</span>
-                            {module.title}
-                          </h3>
-                          <p className="text-gray-500 text-sm mt-2">{module.description}</p>
-                        </div>
-                        <span className="text-[10px] text-gray-600 font-bold uppercase tracking-widest">{module.lessons?.length || 0} Lessons</span>
-                      </div>
-
-                      <div className="space-y-3">
-                        {module.lessons?.map((lesson, lessonIndex) => (
-                          <div key={lessonIndex} className="bg-black/10 border border-white/5 rounded-xl p-4">
-                            <div className="flex items-center justify-between gap-4 mb-3">
-                              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                                <PlayCircle className="h-4 w-4 text-brand-mint/70" />
-                                {lesson.title}
-                              </h4>
-                              <span className="text-xs text-gray-500">{lesson.duration}</span>
-                            </div>
-                            <p className="text-gray-400 text-sm whitespace-pre-wrap line-clamp-4">{lesson.content}</p>
-                            {lesson.script && (
-                              <div className="mt-4 border-t border-white/5 pt-4">
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-mint mb-2">Script</p>
-                                <p className="text-gray-400 text-sm whitespace-pre-wrap line-clamp-4">{lesson.script}</p>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      {module.quiz?.questions?.length ? (
-                        <div className="mt-5 border-t border-white/5 pt-5">
-                          <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3">{module.quiz.title || 'Quiz'}</h4>
-                          <div className="space-y-3">
-                            {module.quiz.questions.map((question, questionIndex) => (
-                              <div key={questionIndex} className="bg-white/[0.02] rounded-lg p-4">
-                                <p className="text-sm font-medium text-gray-200 mb-3">{questionIndex + 1}. {question.question}</p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                  {question.options.map((option, optionIndex) => (
-                                    <span
-                                      key={optionIndex}
-                                      className={`text-xs rounded px-3 py-2 ${question.correctIndex === optionIndex ? 'bg-brand-mint/10 text-brand-mint' : 'bg-white/5 text-gray-400'}`}
-                                    >
-                                      {option}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-
-                {scripts.length > 0 && (
-                  <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6">
-                    <h3 className="text-sm font-bold text-white uppercase tracking-widest mb-4">Scripts</h3>
-                    <div className="space-y-3">
-                      {scripts.map((script, index) => (
-                        <div key={index} className="bg-black/10 border border-white/5 rounded-lg p-4">
-                          <p className="text-xs font-bold text-brand-mint mb-2">{script.lessonTitle}</p>
-                          <p className="text-sm text-gray-400 whitespace-pre-wrap">{script.script}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -1450,7 +1410,7 @@ const AdminDashboard = () => {
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-brand-mint mb-2">Course Content</p>
                     <h3 className="text-white font-bold text-lg">{contentCourse.title}</h3>
-                    <p className="text-sm text-gray-500 mt-1">Manage modules and lessons saved to Supabase.</p>
+                    <p className="text-sm text-gray-500 mt-1">Edit lessons below. Changes save automatically; video is optional.</p><p role="status" className="text-secondary">{lessonSaveStatus}</p>
                     {courseMediaProgress && (
                       <p className="text-xs text-brand-mint mt-2">{courseMediaProgress}</p>
                     )}

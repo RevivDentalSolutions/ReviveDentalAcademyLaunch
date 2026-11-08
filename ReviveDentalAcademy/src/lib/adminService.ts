@@ -1,4 +1,5 @@
-import { supabase } from './supabase';
+import { supabase, getCourseWithContent } from './supabase';
+import { withQuiz, validateCourseDraft, draftRecordId } from './courseContent';
 import type { Course, Module, Lesson, Template, Profile, Subscription, VideoPackage, VideoPackageData } from './supabase';
 import type { CourseLessonOption, VideoLessonMetadata } from './video-lessons/videoLessonTypes';
 import { isCourseLevel, normalizeCourseLevel } from './courseLevel';
@@ -33,6 +34,7 @@ export async function adminCreateCourse(data: {
   duration?: string;
   published?: boolean;
 }): Promise<Course> {
+  if (data.published) throw new Error('Save a draft and add lessons before publishing.');
   const level = normalizeCourseLevel(data.level);
   if (!isCourseLevel(level)) throw new Error('Select a valid course level before saving.');
   const { data: course, error } = await supabase
@@ -66,6 +68,10 @@ export async function adminUpdateCourse(
     published: boolean;
   }>
 ): Promise<Course> {
+  if (data.published) {
+    const existing = await getCourseWithContent(courseId);
+    validateCourseDraft({ title: data.title || existing.course?.title || '', modules: existing.modules.map(m => ({ title:m.title, lessons:(m.lessons || []).map(l => ({title:l.title,content:l.content || ''})) })) });
+  }
   const normalizedData = data.level === undefined ? data : { ...data, level: normalizeCourseLevel(data.level) };
   const { data: course, error } = await supabase
     .from('courses')
@@ -171,16 +177,14 @@ export async function adminAddLesson(
 /** Update an existing lesson */
 export async function adminUpdateLesson(
   lessonId: string,
-  data: Partial<{ title: string; content: string; video_url: string; duration: string; order: number }>
+  data: Partial<{ title: string; content: string; video_url: string; duration: string; order: number }>,
+  expectedUpdatedAt?: string
 ): Promise<Lesson> {
-  const { data: lesson, error } = await supabase
-    .from('lessons')
-    .update({ ...data, updated_at: new Date().toISOString() })
-    .eq('id', lessonId)
-    .select('*')
-    .single();
+  let query = supabase.from('lessons').update({ ...data, updated_at: new Date().toISOString() }).eq('id', lessonId);
+  if (expectedUpdatedAt) query = query.eq('updated_at', expectedUpdatedAt);
+  const { data: lesson, error } = await query.select('*').single();
+  if (error) throw new Error(error.code === 'PGRST116' ? 'This lesson changed elsewhere. Export your edits and reload before retrying.' : error.message);
 
-  if (error) throw error;
   return lesson;
 }
 
@@ -423,18 +427,13 @@ export interface Quiz {
 
 /** Save a quiz for a lesson */
 export async function adminSaveQuiz(quiz: Omit<Quiz, 'id'>): Promise<Quiz> {
-  // Store quiz in a 'quizzes' table or as JSON in lesson metadata
-  // For now, we'll use the lesson content field to store quiz data
-  const { data: lesson, error } = await supabase
-    .from('lessons')
-    .update({
-      content: quiz.questions.map((q, i) => 
-        `## Quiz: ${quiz.title}\n\n**Q${i + 1}:** ${q.question}\n\nOptions:\n${q.options.map((o, j) => `${j === q.correctIndex ? '✓' : '○'} ${o}`).join('\n')}`
-      ).join('\n\n'),
-    })
-    .eq('id', quiz.lesson_id)
-    .select('id')
-    .single();
+  // Read first and use optimistic concurrency: never replace a lesson with quiz text.
+  const { data: existing, error: readError } = await supabase.from('lessons')
+    .select('content, updated_at').eq('id', quiz.lesson_id).single();
+  if (readError) throw readError;
+  const { data: lesson, error } = await supabase.from('lessons')
+    .update({ content: withQuiz(existing.content || '', quiz), updated_at: new Date().toISOString() })
+    .eq('id', quiz.lesson_id).eq('updated_at', existing.updated_at).select('id').single();
 
   if (error) throw error;
 
@@ -445,6 +444,7 @@ export async function adminSaveQuiz(quiz: Omit<Quiz, 'id'>): Promise<Quiz> {
 }
 /** Save a full course with modules and lessons (useful for AI generated courses) */
 export async function adminSaveFullCourse(courseData: any): Promise<string> {
+  validateCourseDraft(courseData);
   const checklistText = courseData.checklist?.length
     ? `\n\n## Course Checklist\n${courseData.checklist.map((item: string, index: number) => `${index + 1}. ${item}`).join('\n')}`
     : '';
@@ -452,48 +452,36 @@ export async function adminSaveFullCourse(courseData: any): Promise<string> {
   const normalizedLevel = normalizeCourseLevel(courseData.level);
   if (!isCourseLevel(normalizedLevel)) throw new Error('Select a valid course level before saving.');
 
-  // 1. Create the course
-  const course = await adminCreateCourse({
-    title: courseData.title,
-    description: `${courseData.description || ''}${checklistText}`,
-    image_url: courseData.image_url,
-    level: normalizedLevel,
-    duration: courseData.duration,
-    published: false
-  });
-
+  const courseId = courseData.draftId;
+  if (!courseId) throw new Error('This draft needs a stable ID. Export a backup and reopen the course builder.');
+  const { data: existing, error: lookupError } = await supabase.from('courses').select('published').eq('id', courseId).maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existing?.published) throw new Error('This course is already published. Edit it through Manage Courses.');
+  const { error: courseError } = await supabase.from('courses').upsert({
+    id: courseId, title: courseData.title, description: `${courseData.description || ''}${checklistText}`,
+    image_url: courseData.image_url || '', level: normalizedLevel, duration: courseData.duration || '',
+    published: false, ...(existing ? {} : { price: 0 }), updated_at: new Date().toISOString(),
+  }, { onConflict: 'id' });
+  if (courseError) throw readableCourseSaveError(courseError);
   try {
-    // 2. Add modules
-    if (courseData.modules) {
-      for (const mod of courseData.modules) {
-        const module = await adminAddModule(course.id, mod.title, mod.order, mod.description || '');
-
-        // 3. Add lessons and preserve a module quiz on its final lesson.
-        if (mod.lessons) {
-          for (const [lessonIndex, lesson] of mod.lessons.entries()) {
-            const isFinalLesson = lessonIndex === mod.lessons.length - 1;
-            const lessonText = lesson.script
-              ? `${lesson.content || ''}\n\n## Training Script\n\n${lesson.script}`
-              : lesson.content || '';
-            const quizText = isFinalLesson && mod.quiz?.questions?.length
-              ? `\n\n---\n\n## Quiz: ${mod.quiz.title || `${mod.title} Knowledge Check`}\n\n${mod.quiz.questions.map((question: any, questionIndex: number) => `**Q${questionIndex + 1}:** ${question.question}\n\n${(question.options || []).map((option: string, optionIndex: number) => `${optionIndex === question.correctIndex ? '✓' : '○'} ${option}`).join('\n')}`).join('\n\n')}`
-              : '';
-            await adminAddLesson(module.id, {
-              title: lesson.title,
-              content: `${lessonText}${quizText}`,
-              duration: lesson.duration,
-              order: lesson.order,
-              video_url: lesson.video_url
-            });
-          }
-        }
+    for (const [mi, mod] of courseData.modules.entries()) {
+      const moduleId = await draftRecordId(courseId, `module:${mi}`);
+      const { error: moduleError } = await supabase.from('modules').upsert({
+        id: moduleId, course_id: courseId, title: mod.title, description: mod.description || '', order: mi + 1,
+      }, { onConflict: 'id' });
+      if (moduleError) throw moduleError;
+      for (const [li, lesson] of mod.lessons.entries()) {
+        const text = lesson.script ? `${lesson.content}\n\n## Training Script\n\n${lesson.script}` : lesson.content;
+        const content = li === mod.lessons.length - 1 && mod.quiz?.questions?.length ? withQuiz(text, mod.quiz) : text;
+        const { error: lessonError } = await supabase.from('lessons').upsert({
+          id: await draftRecordId(courseId, `module:${mi}:lesson:${li}`), module_id: moduleId,
+          title: lesson.title, content, video_url: lesson.video_url || '', duration: lesson.duration || '', order: li + 1,
+        }, { onConflict: 'id' });
+        if (lessonError) throw lessonError;
       }
     }
   } catch (error) {
-    // Course deletion cascades through modules and lessons, preventing partial AI drafts.
-    await adminDeleteCourse(course.id).catch(() => undefined);
-    throw readableCourseSaveError(error);
+    throw new Error(`Some of this draft is saved. Retry Save to resume the same course (${courseId}). ${readableCourseSaveError(error).message}`);
   }
-
-  return course.id;
+  return courseId;
 }

@@ -25,3 +25,5 @@ dist-ssr
 .env
 .env.local
 .env.production
+# Local-only verification harnesses
+qa.local.*

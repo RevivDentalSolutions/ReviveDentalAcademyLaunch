@@ -1,3 +1,4 @@
+import { requireAdmin } from './require-admin.js';
 /**
  * AI Course Generator Server
  *
@@ -51,6 +52,7 @@ function readableCourseSaveError(error) {
 
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
+app.use(requireAdmin(() => supabase));
 
 // ============================================================
 // Health Check

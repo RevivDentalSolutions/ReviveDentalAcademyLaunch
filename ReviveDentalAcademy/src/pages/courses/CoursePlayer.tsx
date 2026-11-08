@@ -30,6 +30,8 @@ import {
   type Course,
   type Module
 } from '../../lib/supabase';
+import { courseProgress, readQuiz } from '../../lib/courseContent';
+import { LessonQuiz } from '../../components/courses/LessonQuiz';
 import { useAuthStore } from '../../store/authStore';
 
 function getVideoEmbedUrl(videoUrl: string | null | undefined): string {
@@ -194,7 +196,7 @@ export function sanitizeMemberLessonContent(content: string | null | undefined) 
     const heading = getMarkdownHeading(line);
 
     if (skipHeadingLevel !== null) {
-      if (!heading || !MEMBER_FACING_LESSON_HEADINGS.has(heading.normalizedText)) {
+      if (!heading || (heading.level > skipHeadingLevel && !MEMBER_FACING_LESSON_HEADINGS.has(heading.normalizedText))) {
         continue;
       }
       skipHeadingLevel = null;
@@ -235,7 +237,7 @@ function renderInlineMarkdown(text: string): ReactNode[] {
   });
 }
 
-function renderMarkdown(content: string | null | undefined): ReactNode {
+export function renderMarkdown(content: string | null | undefined): ReactNode {
   if (!content?.trim()) {
     return <p className="text-gray-500 italic">No lesson content has been added yet.</p>;
   }
@@ -349,8 +351,13 @@ const CoursePlayer = () => {
   const [playbackUrl, setPlaybackUrl] = useState('');
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [playbackError, setPlaybackError] = useState('');
+  const [progressError, setProgressError] = useState('');
+  const [savingProgress, setSavingProgress] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    setAuthorized(false); setCourse(null); setModules([]); setProgress([]); setLoading(true);
+    setCurrentModuleIdx(0); setCurrentLessonIdx(0);
     const initPlayer = async () => {
       if (!courseId || !user) {
         setLoading(false);
@@ -363,21 +370,25 @@ const CoursePlayer = () => {
         const hasActiveSub = await hasActiveSubscription();
         const purchased = await hasPurchasedCourse(courseId);
         
+        if (cancelled) return;
         if (!isAdmin && !hasActiveSub && !purchased) {
           setAuthorized(false);
           setLoading(false);
           return;
         }
 
-        setAuthorized(true);
+        // Authorization is finalized only after content loads.
 
         // Fetch course content
         const { course: fetchedCourse, modules: fetchedModules } = await getCourseWithContent(courseId);
+        if (cancelled) return;
+        setAuthorized(true);
         setCourse(fetchedCourse);
         setModules(fetchedModules);
 
         // Fetch user progress
         const userProgress = await getUserProgress();
+        if (cancelled) return;
         setProgress(userProgress);
 
         setLoading(false);
@@ -388,18 +399,20 @@ const CoursePlayer = () => {
     };
 
     initPlayer();
+    return () => { cancelled = true; };
   }, [courseId, user, profile]);
 
   const handleCompleteLesson = async () => {
-    if (!modules[currentModuleIdx]?.lessons?.[currentLessonIdx]?.id) return;
+    if (savingProgress || !modules[currentModuleIdx]?.lessons?.[currentLessonIdx]?.id) return;
+    setSavingProgress(true); setProgressError('');
     
     const lessonId = modules[currentModuleIdx].lessons![currentLessonIdx].id;
     try {
       await completeLesson(lessonId);
-      setProgress(prev => [...prev, lessonId]);
+      setProgress(prev => [...new Set([...prev, lessonId])]);
     } catch (error) {
-      console.error('Error completing lesson:', error);
-    }
+      setProgressError(error instanceof Error ? error.message : 'Progress could not be saved. Please retry.');
+    } finally { setSavingProgress(false); }
   };
 
   const currentLessonForPlayback = modules[currentModuleIdx]?.lessons?.[currentLessonIdx];
@@ -496,9 +509,11 @@ const CoursePlayer = () => {
   const currentVideoUrl = playbackUrl;
   const currentVideoIsMp4 = isMp4VideoUrl(playbackUrl);
   const memberLessonContent = sanitizeMemberLessonContent(currentLesson?.content);
-  const totalLessons = modules.reduce((acc, m) => acc + (m.lessons?.length || 0), 0);
-  const completedCount = progress.length; // Simplified for this demo
-  const progressPercent = Math.round((completedCount / (totalLessons || 1)) * 100);
+  const progressPercent = courseProgress(modules.flatMap(m => (m.lessons || []).map(l => l.id)), progress).percent;
+  const positions = modules.flatMap((m, mi) => (m.lessons || []).map((_, li) => ({ mi, li })));
+  const position = positions.findIndex(p => p.mi === currentModuleIdx && p.li === currentLessonIdx);
+  const moveLesson = (offset: number) => { const next = positions[position + offset]; if (next) { setCurrentModuleIdx(next.mi); setCurrentLessonIdx(next.li); } };
+  const quiz = readQuiz(currentLesson?.content || '');
 
   return (
     <div className="bg-[#161B21] min-h-screen flex flex-col lg:flex-row overflow-hidden font-sans">
@@ -601,6 +616,7 @@ const CoursePlayer = () => {
                 <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-secondary/60" /> {currentLesson?.duration || '0:00'}</span>
                 <button 
                   onClick={handleCompleteLesson}
+                  disabled={savingProgress || !!readQuiz(currentLesson?.content || '')}
                   className={`flex items-center gap-2 transition-colors ${
                     currentLesson?.id && progress.includes(currentLesson.id) 
                       ? 'text-secondary font-bold' 
@@ -617,12 +633,12 @@ const CoursePlayer = () => {
             </div>
             <div className="flex gap-4">
               <button 
-                disabled={currentLessonIdx === 0 && currentModuleIdx === 0}
+                onClick={() => moveLesson(-1)} disabled={position <= 0}
                 className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-30"
               >
                 <ChevronLeft className="h-4 w-4 text-secondary" /> Previous
               </button>
-              <button className="btn-glow flex items-center gap-2 px-8 py-3 bg-secondary text-primary font-bold rounded-xl text-sm transition-all">
+              <button onClick={() => moveLesson(1)} disabled={position >= positions.length - 1} className="btn-glow disabled:opacity-30 flex items-center gap-2 px-8 py-3 bg-secondary text-primary font-bold rounded-xl text-sm transition-all">
                 Next Lesson <ChevronRight className="h-4 w-4" />
               </button>
             </div>
@@ -631,20 +647,12 @@ const CoursePlayer = () => {
           <div className="prose prose-invert max-w-4xl">
             <h2 className="text-xl font-bold tracking-tight text-white mb-6">Lesson Content</h2>
             <div className="mb-8">
+              {progressError && <p role="alert" className="text-red-400">{progressError}</p>}
               {renderMarkdown(memberLessonContent)}
+              {quiz && <LessonQuiz key={currentLesson?.id} quiz={quiz} onPass={handleCompleteLesson} />}
             </div>
             
-            {/* Action Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
-              <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5">
-                <h4 className="text-secondary font-bold text-sm uppercase tracking-widest mb-4">Key Takeaway</h4>
-                <p className="text-gray-400 text-sm leading-relaxed">Always verify individual procedure frequencies, not just overall category limits.</p>
-              </div>
-              <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5">
-                <h4 className="text-secondary font-bold text-sm uppercase tracking-widest mb-4">Pro Tip</h4>
-                <p className="text-gray-400 text-sm leading-relaxed">Use the narrative template provided in the downloads section for SRP denials.</p>
-              </div>
-            </div>
+
           </div>
         </div>
       </div>
@@ -716,38 +724,11 @@ const CoursePlayer = () => {
                 </div>
                 <ExternalLink className="h-4 w-4 text-secondary/60 group-hover:text-secondary" />
               </div>
-              {[
-                { name: 'Insurance_Verification_Standard.pdf', size: '1.2 MB', type: 'PDF' },
-                { name: 'Fee_Schedule_Analysis.xlsx', size: '2.4 MB', type: 'XLSX' }
-              ].map((file, i) => (
-                <div key={i} className="p-5 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-between group cursor-pointer hover:border-secondary/30 transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-secondary/10 text-secondary">
-                      <FileText className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-white mb-1">{file.name}</p>
-                      <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">{file.type} • {file.size}</p>
-                    </div>
-                  </div>
-                  <Download className="h-4 w-4 text-gray-600 group-hover:text-secondary transition-colors" />
-                </div>
-              ))}
+              <p className="text-gray-400">No course-specific files are attached.</p>
             </div>
           )}
 
-          {activeTab === 'quiz' && (
-            <div className="text-center py-16 px-4">
-              <div className="p-6 rounded-full bg-white/[0.02] border border-white/5 w-fit mx-auto mb-6">
-                <HelpCircle className="h-10 w-10 text-gray-700" />
-              </div>
-              <h3 className="text-white font-bold tracking-tight text-xl mb-3">Ready for Assessment?</h3>
-              <p className="text-sm text-gray-500 mb-10 leading-relaxed">Complete all lessons in this module to unlock the knowledge assessment and earn your credentials.</p>
-              <button className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl text-gray-500 text-sm font-bold opacity-50 cursor-not-allowed">
-                Take Module Quiz
-              </button>
-            </div>
-          )}
+          {activeTab === 'quiz' && <p className="text-gray-300">{quiz ? 'Complete the knowledge check below this lesson. Passing records lesson completion.' : 'This lesson has no interactive quiz. Continue through the course lessons.'}</p>}
           
           {activeTab === 'notes' && (
             <div className="space-y-6">
