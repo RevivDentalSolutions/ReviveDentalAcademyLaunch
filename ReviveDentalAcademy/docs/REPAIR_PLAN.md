@@ -74,3 +74,14 @@ Use the existing academy.getrevivedental.com domain, already verified on the exi
 5. Obtain final publication approval before enabling the course or public sales.
 
 Reference: https://vercel.com/docs/project-configuration/git-configuration documents exact-branch `git.deploymentEnabled: false`.
+
+## November 20 authorized repair release
+
+Scoped repair deployment now authorized; this is not a public-sales release.
+
+- Added Vercel AI handler with health endpoint, admin authentication, bounded SDK timeout/no retries, and explicit enable gate. AI remains paused until the exposed credential is rotated and ACADEMY_AI_ENABLED is set intentionally.
+- Added SPA deep-link routing. Checkout and rendering return explicit 503 JSON pending their remaining repairs.
+- Existing Supabase environment targets now include production; secret values unchanged. OpenAI key is not copied to production.
+- Applied restrict_profile_updates_and_function_search_paths (SQL in PROFILE_SECURITY_REPAIR.sql): clients cannot change profile role or identity, name/avatar edits remain allowed, function search paths fixed, signup trigger execution restricted. Verified unchanged counts: 3 courses, 32 lessons, 2 profiles.
+- Eleven tests pass, including handler health/auth and paused services. Frontend build passes.
+- Paid-content policies, authenticated end-to-end acceptance, credential rotation, payment validation and certificates remain outstanding. No course publication or sales launch is implied.
