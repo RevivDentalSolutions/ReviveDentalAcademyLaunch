@@ -11,6 +11,7 @@ import OfficeProDashboard from './pages/membership/OfficeProDashboard';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import LoginPage from './pages/auth/LoginPage';
 import ResourceCenter from './pages/resources/ResourceCenter';
+import InsuranceVideoPreview from './pages/InsuranceVideoPreview';
 import { hasActiveSubscription } from './lib/supabase';
 
 function App() {
@@ -63,6 +64,7 @@ function App() {
   return (
     <Routes>
       <Route path="/course-player/:courseId" element={<CoursePlayer />} />
+      <Route path="/ai-twin-prototype-preview" element={<InsuranceVideoPreview />} />
       <Route path="/admin" element={<AdminRoute />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={
