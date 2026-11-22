@@ -12,6 +12,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import LoginPage from './pages/auth/LoginPage';
 import ResourceCenter from './pages/resources/ResourceCenter';
 import InsuranceVideoPreview from './pages/InsuranceVideoPreview';
+import AiInstructorSetup from './pages/AiInstructorSetup';
 import { hasActiveSubscription } from './lib/supabase';
 
 function App() {
@@ -61,11 +62,18 @@ function App() {
     return <AdminDashboard />;
   };
 
+  const AdminInstructorRoute = () => {
+    if (!isAuthenticated) return <Navigate to="/login" replace />;
+    if (!isAdmin) return <Navigate to="/" replace />;
+    return <AiInstructorSetup />;
+  };
+
   return (
     <Routes>
       <Route path="/course-player/:courseId" element={<CoursePlayer />} />
       <Route path="/ai-twin-prototype-preview" element={<InsuranceVideoPreview />} />
       <Route path="/admin" element={<AdminRoute />} />
+      <Route path="/admin/ai-instructor" element={<AdminInstructorRoute />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={
         <Layout>
