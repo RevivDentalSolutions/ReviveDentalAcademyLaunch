@@ -76,6 +76,7 @@ export interface AIGeneratedModule {
 }
 
 export interface AIGeneratedCourse {
+  draftId?: string;
   title: string;
   description: string;
   level: CourseLevel | string;

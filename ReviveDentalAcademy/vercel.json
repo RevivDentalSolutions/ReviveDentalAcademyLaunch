@@ -1,0 +1,35 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "repair/reliable-course-workflow": false
+    }
+  },
+  "functions": {
+    "api/ai.js": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/ai/:path*",
+      "destination": "/api/ai"
+    },
+    {
+      "source": "/api/stripe/:path*",
+      "destination": "/api/unavailable"
+    },
+    {
+      "source": "/api/video/:path*",
+      "destination": "/api/unavailable"
+    },
+    {
+      "source": "/api/admin/video-lessons/:path*",
+      "destination": "/api/unavailable"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

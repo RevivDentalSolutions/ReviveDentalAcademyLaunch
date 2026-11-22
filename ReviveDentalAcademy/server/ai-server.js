@@ -1,3 +1,4 @@
+import { requireAdmin } from './require-admin.js';
 /**
  * AI Course Generator Server
  *
@@ -23,13 +24,15 @@ const app = express();
 const PORT = process.env.AI_API_PORT || 3002;
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
+  apiKey: process.env.OPENAI_API_KEY || 'not-configured',
+  timeout: 45000,
+  maxRetries: 0,
 });
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
 const REVIVE_VIDEO_BRAND_PROMPT = 'Revive Dental Solutions video brand: dark charcoal background, soft aqua and teal accents, clean modern sans-serif typography, luxury healthcare SaaS aesthetic, realistic dental office visuals, professional calm high-trust tone, soft lighting, elegant minimal composition, no cartoon style, no cheesy stock footage feel. Visual direction: modern dental office, clean front desk, confident administrative team, practical training platform, cinematic but grounded.';
 
@@ -49,8 +52,14 @@ function readableCourseSaveError(error) {
   return error instanceof Error ? error : new Error(error?.message || 'The course could not be saved. Please try again.');
 }
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(cors());
+app.get('/api/ai/health', (_req, res) => res.json({ status: 'ok', generationEnabled: process.env.ACADEMY_AI_ENABLED === 'true' && Boolean(process.env.OPENAI_API_KEY) }));
+app.use(requireAdmin(() => supabase));
+app.use((_req, res, next) => {
+  if (process.env.ACADEMY_AI_ENABLED !== 'true' || !process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'AI generation is paused pending credential rotation. You can import, edit, save, and preview course content.' });
+  next();
+});
 
 // ============================================================
 // Health Check
@@ -523,7 +532,9 @@ function formatQuizContent(quiz) {
 // ============================================================
 // Start Server
 // ============================================================
-app.listen(PORT, () => {
+export default app;
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) app.listen(PORT, () => {
   console.log(`\n  🤖 AI Course Generator running on http://localhost:${PORT}`);
   console.log(`  📋 Endpoints:`);
   console.log(`     POST /api/ai/generate-course    (course + quizzes + checklists)`);

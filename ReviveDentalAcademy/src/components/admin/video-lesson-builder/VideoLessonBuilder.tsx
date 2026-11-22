@@ -95,7 +95,7 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
   const [assetPreviewOpen, setAssetPreviewOpen] = useState(false);
   const [advancedJsonOpen, setAdvancedJsonOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState<"scene" | "lesson">("scene");
-  const [draftStatus, setDraftStatus] = useState<"saved" | "saving">("saved");
+  const [draftStatus, setDraftStatus] = useState<"saved" | "saving" | "failed">("saved");
   const [generatorOpen, setGeneratorOpen] = useState(false);
   const [generatorNarration, setGeneratorNarration] = useState("");
   const [generatorTitle, setGeneratorTitle] = useState("");
@@ -163,7 +163,7 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(
+    try { window.localStorage.setItem(
       VIDEO_LESSON_DRAFT_KEY,
       JSON.stringify({
         lesson: {
@@ -175,6 +175,7 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
         jsonValue,
       })
     );
+    } catch { setDraftStatus("failed"); return; }
     const timer = window.setTimeout(() => setDraftStatus("saved"), 350);
     return () => window.clearTimeout(timer);
   }, [academySettings, jsonValue, lesson, selectedSceneId]);
@@ -445,8 +446,11 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
   }
 
   async function saveMetadata() {
-    await onSaveMetadata?.({ ...lesson, academySettings });
-    setMessage("Video lesson metadata saved to the course lesson system.");
+    try {
+      if (!onSaveMetadata) throw new Error("Course lesson saving is unavailable.");
+      await onSaveMetadata({ ...lesson, academySettings });
+      setMessage("Video lesson metadata saved to the course lesson system.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Metadata was not saved. Please retry."); }
   }
 
   async function saveSettings() {
@@ -787,7 +791,7 @@ export function VideoLessonBuilder({ initialLesson, courseLessons = [], onSaveMe
           <h1>Video Lesson Builder</h1>
         </div>
         <div className="vlb-actions">
-          <span className="vlb-autosave-badge">{draftStatus === "saving" ? "Saving draft…" : "Draft saved"}</span>
+          <span className="vlb-autosave-badge">{draftStatus === "failed" ? "Browser storage full — draft not saved" : draftStatus === "saving" ? "Saving draft…" : "Draft saved in this browser"}</span>
           <button type="button" onClick={() => setGeneratorOpen((open) => !open)}>Generate Scenes</button>
           {import.meta.env.DEV && <button type="button" onClick={() => setAssetPreviewOpen(true)}>Asset Preview</button>}
           <button type="button" onClick={loadSampleKeyTermsLesson}>
