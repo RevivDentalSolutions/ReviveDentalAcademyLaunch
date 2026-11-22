@@ -24,13 +24,15 @@ import {
 import { 
   getCourseWithContent, 
   getUserProgress, 
-  completeLesson, 
+  completeLesson,
+  submitLessonQuiz,
   hasPurchasedCourse,
   hasActiveSubscription,
   type Course,
   type Module
 } from '../../lib/supabase';
 import { courseProgress, readQuiz } from '../../lib/courseContent';
+import { CourseCertificate } from '../../components/courses/CourseCertificate';
 import { LessonQuiz } from '../../components/courses/LessonQuiz';
 import { useAuthStore } from '../../store/authStore';
 
@@ -649,11 +651,14 @@ const CoursePlayer = () => {
             <div className="mb-8">
               {progressError && <p role="alert" className="text-red-400">{progressError}</p>}
               {renderMarkdown(memberLessonContent)}
-              {quiz && <LessonQuiz key={currentLesson?.id} quiz={quiz} onPass={handleCompleteLesson} />}
+              {quiz && <LessonQuiz key={currentLesson?.id} quiz={quiz}
+                submit={(answers) => submitLessonQuiz(currentLesson!.id, answers, JSON.stringify(quiz))}
+                onPass={async () => { setProgress(prev => [...new Set([...prev, currentLesson!.id])]); }} />}
             </div>
             
 
           </div>
+          {courseId && <CourseCertificate key={courseId} courseId={courseId} />}
         </div>
       </div>
 

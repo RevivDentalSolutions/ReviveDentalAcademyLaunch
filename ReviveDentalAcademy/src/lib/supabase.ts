@@ -251,6 +251,14 @@ export async function completeLesson(lessonId: string): Promise<void> {
   if (error) throw error
 }
 
+export async function submitLessonQuiz(lessonId: string, answers: number[], quizRevision: string): Promise<{score: number; passed: boolean; correctCount: number; questionCount: number}> {
+  const { data, error } = await supabase.rpc('submit_lesson_quiz', {
+    p_lesson_id: lessonId, p_answers: answers, p_quiz_revision: quizRevision,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function getUserProgress(): Promise<string[]> {
   const user = await getCurrentUser()
   if (!user) return []
