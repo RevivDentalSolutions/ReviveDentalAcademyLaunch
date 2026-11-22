@@ -1,5 +1,6 @@
 import { Composition } from "remotion";
 import { sampleVideoLesson } from "../lib/video-lessons/videoLessonTypes";
+import { insuranceVerificationPrototype } from "./insuranceVerificationPrototype";
 import {
   getLessonDurationInFrames,
   reviveVideoConfig,
@@ -21,6 +22,15 @@ export function RemotionRoot() {
       defaultProps={{
         lesson: sampleVideoLesson,
       }}
+    />
+    <Composition
+      id="ReviveInsuranceVerificationPrototype"
+      component={VideoLessonComposition}
+      durationInFrames={getLessonDurationInFrames(insuranceVerificationPrototype)}
+      fps={reviveVideoConfig.fps}
+      width={reviveVideoConfig.width}
+      height={reviveVideoConfig.height}
+      defaultProps={{ lesson: insuranceVerificationPrototype }}
     />
     {assetPreviewLayoutIds.map((layoutId) => {
       const previewLesson = createAssetPreviewLesson(layoutId);
