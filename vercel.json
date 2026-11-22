@@ -1,4 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "git": { "deploymentEnabled": { "repair/reliable-course-workflow": false } }
+  "git": {
+    "deploymentEnabled": {
+      "repair/reliable-course-workflow": false,
+      "feature/academy-ai-twin-studio": false
+    }
+  }
 }
